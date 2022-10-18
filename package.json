@@ -6,7 +6,8 @@
   "type": "module",
   "scripts": {
     "build": "npx tsc",
-    "start": "npm run build && node ."
+    "start": "npm run build && node .",
+    "lint": "npx eslint src/**"
   },
   "author": "X-Pkg Registry Contributors",
   "license": "Apache-2.0",

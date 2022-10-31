@@ -30,66 +30,39 @@ type DatabaseRecord = {
   versions?: string[]
 };
 
-
 import dotenv from 'dotenv';
 dotenv.config();
 
-import mysql from 'mysql';
+import mysql from 'mysql2';
 import Express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
+import query from './database.js';
 // import crypto from 'crypto';
 // import { nanoid } from 'nanoid/async';
 
-const connection = mysql.createConnection({
-  host: '127.0.0.1',
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: 'xpkg_packages',
-  multipleStatements: false
-});
-await new Promise<void>((resolve, reject) => {
-  connection.connect(err => {
-    if (err)
-      reject(err);
-    resolve();
-  });
-});
+// const connection = mysql.createConnection({
+//   host: '127.0.0.1',
+//   user: process.env.DB_USER,
+//   password: process.env.DB_PASSWORD,
+//   database: 'xpkg_packages',
+//   multipleStatements: false
+// });
+// await new Promise<void>((resolve, reject) => {
+//   connection.connect(err => {
+//     if (err)
+//       reject(err);
+//     resolve();
+//   });
+// });
 
 const app = Express();
 const storeFile = path.resolve('./data.json');
 
-// Get a list of all packages
-app.get('/packages/', (_, res) => {
-  res.sendFile(storeFile);
-});
-
-// Get the hash and location of a package
-app.get('/packages/:package/:version', (req, res) => {
-  const { package: packageId, version: versionStr } = req.params;
-  connection.query('SELECT loc, published, approved, HEX(hash) FROM versions WHERE packageId = ? AND version = ?;', [packageId, versionStr], (err, data: { loc: string, 'HEX(hash)': string, published: boolean, approved: boolean }[]) => {
-    if (err) {
-      console.error(err);
-      return res.sendStatus(500);
-    }
-
-    if (data.length < 1)
-      return res.sendStatus(404);
-    else if (data.length > 1)
-      return res.sendStatus(400);
-      
-    const [version] = data;
-
-    let { loc } = version;
-    const { published, approved } = version;
-    if (!approved)
-      res.sendStatus(404);
-    else if (!published)
-      loc = 'NOT_PUBLISHED';
-
-    res.json({ loc, hash: version['HEX(hash)'] });
-  });
-});
+import main from './routes/main.js';
+import packages from './routes/packages.js';
+app.use('/', main);
+app.use('/packages', packages);
 
 /**
  * Update the JSON file which is storing all of the data.
@@ -98,7 +71,7 @@ async function updateJSON(): Promise<void> {
   const data: DatabaseRecord[] = [];
 
   const packageData = await new Promise<DatabaseRecord[]>((resolve, reject) => {
-    connection.query('SELECT packageId, packageName, authorName, description FROM packages;', (err, data: DatabaseRecord[]) => {
+    query('SELECT packageId, packageName, authorName, description FROM packages;', (err, data: DatabaseRecord[]) => {
       if (err)
         return reject(err);
       resolve(data);
@@ -124,7 +97,8 @@ async function updateJSON(): Promise<void> {
  */
 async function getVersions(packageId: string): Promise<string[]> {
   return new Promise<string[]>((resolve, reject) => {
-    connection.query('SELECT version FROM versions WHERE packageId = ? AND approved = true AND published = true;', [packageId], (err, d: { version: string }[]) => {
+    const queryStr = mysql.format('SELECT version FROM versions WHERE packageId = ? AND approved = true AND published = true;', [packageId]);
+    query(queryStr, (err, d: { version: string }[]) => {
       if (err)
         return reject(err);
       const data = d.map(v => v.version);

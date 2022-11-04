@@ -16,6 +16,7 @@
 /**
  * The data returned from the SQL server.
  * 
+ * @typedef {object} DatabaseRecord
  * @property {string} packageId The id of the package.
  * @property {string} packageName The name of the package.
  * @property {string} authorName The name of the author that published this package.

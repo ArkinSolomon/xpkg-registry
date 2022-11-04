@@ -21,7 +21,7 @@
  * @param {string} [data] The data returned from the callback, undefined if there was an error.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type queryCallback = (err: Error | null, data?: any)=> any;
+type queryCallback = (err: Error | null, data?: any) => any;
 
 import mysql from 'mysql2';
 

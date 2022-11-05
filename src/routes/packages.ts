@@ -26,7 +26,6 @@ type ManifestData = {
   version?: string;
   type?: string;
   authorId?: string;
-  authorName?: string;
 }
 
 /**
@@ -60,7 +59,7 @@ import { nanoid } from 'nanoid/async';
 import unzip from 'unzipper';
 import Mode from 'stat-mode';
 import crypto from 'crypto';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner'; 
+import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 
 const storeFile = path.resolve('./data.json');
@@ -116,9 +115,15 @@ route.post('/upload', upload.single('file'), async (req, res) => {
   const n = await nanoid(32);
   const destFile = path.join(os.tmpdir(), 'unzipped', n);
 
-  const packageId = req.body.packageId.trim().toLowerCase();
-  const version = req.body.version.trim().toLowerCase();
-  const type = req.body.type.trim().toLowerCase();
+  let packageName, packageId, version, type;
+  try {
+    packageName = req.body.packageName.trim().toLowerCase();
+    packageId = req.body.packageId.trim().toLowerCase();
+    version = req.body.version.trim().toLowerCase();
+    type = req.body.type.trim().toLowerCase();
+  } catch (e) {
+    return res.sendStatus(400);
+  }
 
   // TODO get this data with a token
   const authorId = 'no_author_yet';
@@ -163,7 +168,6 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     }
 
     manifest.authorId = authorId;
-    manifest.authorName = authorName;
 
     if (findTrueFileRecursively(packagePath, (s, p) => {
       const mode = Mode(s);
@@ -223,50 +227,40 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     console.log(zippedPath);
     const hashSum = crypto.createHash('sha256');
     hashSum.update(fileBuffer);
-    const hex = hashSum.digest('hex');
+    const hash = hashSum.digest('hex');
 
     const putCmd = new PutObjectCommand({
       Bucket: bucketName,
       Key: manifest.id,
       Body: fileBuffer
     });
-    const putRes = await s3client.send(putCmd);
+    await s3client.send(putCmd);
 
     const getCmd = new GetObjectCommand({
       Bucket: bucketName,
       Key: manifest.id
     });
     const url = await getSignedUrl(s3client, getCmd, { expiresIn: 604800 });
-    console.log(url);
-      
-    res
-      .status(200)
-      .json({ n, manifest, d: tempData });
+
+    const tmpSqlCmd = mysql.format('INSERT INTO packages (packageId, packageName, authorId, authorName, description, packageType) VALUES (?, ?, ?, ?, "no desc", ?);', [manifest.id, packageName, manifest.authorId, authorName, manifest.type]);
+
+    query(tmpSqlCmd, (err, _2) => {
+      if (err)
+        return res.sendStatus(500);
+
+      const sqlCmd = mysql.format('INSERT INTO versions (packageId, version, hash, published, approved, loc) VALUES (?, ?, UNHEX(?), True, True, ?);', [manifest.id, manifest.version, hash, url]);
+      query(sqlCmd, (err, r) => {
+        if (err)
+          return res.sendStatus(500);
+        res
+          .status(200)
+          .json({ n, manifest, d: tempData, url });
+      });
+    });
   } catch (e) {
     console.error(e);
     return res.sendStatus(500);
   }
-});
-
-route.post('/upload/verify', async (req, res) => {
-
-  // Need auth token
-  const authorId = 'no_author_yet';
-  const authorName = 'NO AUTHOR YET';
-
-  const { n } = req.body as {
-    n: string
-  };
-  if (!n)
-    return res.sendStatus(400);
-
-  const unzippedPath = path.join(os.tmpdir(), 'unzipped', n);
-  const tempDataPath = path.join(unzippedPath, 'temporary.json');
-  if (!fs.existsSync(unzippedPath))
-    return res.sendStatus(400);
-
-  const tempData: TempData = JSON.parse(await fsProm.readFile(tempDataPath, 'utf-8'));
-  const packagePath = path.join(unzippedPath, tempData.id);
 });
 
 /** 

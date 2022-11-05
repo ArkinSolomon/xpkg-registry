@@ -1,0 +1,23 @@
+<html lang="en">
+  <head>
+    <meta charset="UTF-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>X-Pkg Developer Dashbaord</title>
+  </head>
+  <body>
+    <h1>X-Pkg Developer Dashboard</h1>
+    <div>
+      <form action="/packages/upload" method="post" enctype="multipart/form-data">
+        <input type="text" name="packageId" id="package-id-input" placeholder="Package Id">
+        <input type="text" name="version" id="version-input" placeholder="Version">
+        <input type="text" name="packageName" id="package-name-input" , placeholder="Package Name">
+        <select name="type" id="type-selector">
+          <option value="other">Other</option>
+        </select>
+        <input type="file" name="file" id="package-file">
+        <input type="submit">
+      </form>
+    </div>
+  </body>
+</html>

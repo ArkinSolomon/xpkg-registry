@@ -22,4 +22,8 @@ route.get('/', (_, res) => {
   res.sendFile(path.resolve('.', 'resources', 'index.html'));
 });
 
+route.get('/dashboard', (_, res) => {
+  res.sendFile(path.resolve('.', 'resources', 'dashboard.html'));
+});
+
 export default route;

@@ -61,6 +61,7 @@ import Mode from 'stat-mode';
 import crypto from 'crypto';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
+import { AuthTokenPayload } from './auth.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -125,9 +126,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     return res.sendStatus(400);
   }
 
-  // TODO get this data with a token
-  const authorId = 'no_author_yet';
-  const authorName = 'NO AUTHOR YET';
+  const {id: authorId,name: authorName} = req.user as AuthTokenPayload;
 
   if (!file || !packageId || !version || !type)
     return res.sendStatus(400);
@@ -244,12 +243,12 @@ route.post('/upload', upload.single('file'), async (req, res) => {
 
     const tmpSqlCmd = mysql.format('INSERT INTO packages (packageId, packageName, authorId, authorName, description, packageType) VALUES (?, ?, ?, ?, "no desc", ?);', [manifest.id, packageName, manifest.authorId, authorName, manifest.type]);
 
-    query(tmpSqlCmd, (err, _2) => {
+    query(tmpSqlCmd, err => {
       if (err)
         return res.sendStatus(500);
 
       const sqlCmd = mysql.format('INSERT INTO versions (packageId, version, hash, published, approved, loc) VALUES (?, ?, UNHEX(?), True, True, ?);', [manifest.id, manifest.version, hash, url]);
-      query(sqlCmd, (err, r) => {
+      query(sqlCmd, err => {
         if (err)
           return res.sendStatus(500);
         res

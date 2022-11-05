@@ -39,31 +39,82 @@ import Express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import query from './database.js';
-// import crypto from 'crypto';
-// import { nanoid } from 'nanoid/async';
-
-// const connection = mysql.createConnection({
-//   host: '127.0.0.1',
-//   user: process.env.DB_USER,
-//   password: process.env.DB_PASSWORD,
-//   database: 'xpkg_packages',
-//   multipleStatements: false
-// });
-// await new Promise<void>((resolve, reject) => {
-//   connection.connect(err => {
-//     if (err)
-//       reject(err);
-//     resolve();
-//   });
-// });
+import jwt from 'jsonwebtoken';
+import bodyParser from 'body-parser';
+import cookieParser from 'cookie-parser';
 
 const app = Express();
+app.use(cookieParser(process.env.COOKIE_SECRET));
+app.use(bodyParser.json());
+app.use(bodyParser.urlencoded({extended: false}));
+
 const storeFile = path.resolve('./data.json');
 
-import main from './routes/main.js';
+import html from './routes/html.js';
 import packages from './routes/packages.js';
-app.use('/', main);
+import auth, { AuthTokenPayload } from './routes/auth.js';
+
+// Update this with all routes that require tokens
+const authRoutes = ['/packages/upload', '/dashboard'];
+
+let authSessionCache: Record<string, string> = {};
+
+// We don't want the cache to get too big, and we don't want to hold it for too long
+const maxCacheSize = 500;
+setInterval(() => {
+  authSessionCache = {};
+}, 3e5);
+
+app.use(authRoutes, async (req, res, next) => {
+  const { authorization: token } = req.signedCookies;
+  try {
+    if (!token || typeof token !== 'string' || !token.length)
+      // Just throw and let exception handling redirect/notify
+      throw null;
+
+    const payload = await new Promise<AuthTokenPayload>((resolve, reject) =>
+      jwt.verify(token, process.env.AUTH_SECRET as string, (err, payload) => {
+        if (err)
+          return reject(err);
+        resolve(payload as AuthTokenPayload);
+      })
+    );
+    const { id, session } = payload;
+
+    let expectedSession: string;
+    if (Object.hasOwnProperty.call(authSessionCache, id))
+      expectedSession = authSessionCache[id];
+    else {
+      const sessionLookupQuery = mysql.format('SELECT session FROM authors WHERE authorId=?;', [id]);
+      expectedSession = await new Promise<string>((resolve, reject) =>
+        query(sessionLookupQuery, (err, r: { session: string }[]) => {
+          if (err || r.length !== 1)
+            return reject(err);
+          resolve(r[0].session);
+        })
+      );
+    }
+
+    if (session.toLowerCase() !== expectedSession.toLowerCase())
+      throw null;
+
+    if (Object.keys(authSessionCache).length > maxCacheSize)
+      authSessionCache = {};
+    authSessionCache[id] = expectedSession;
+
+    req.user = payload;
+
+    next();
+  } catch (_) {
+    return res
+      .status(401)
+      .redirect('/');
+  }
+});
+
+app.use('/', html);
 app.use('/packages', packages);
+app.use('/auth', auth);
 
 /**
  * Update the JSON file which is storing all of the data.
@@ -107,46 +158,6 @@ async function getVersions(packageId: string): Promise<string[]> {
     });
   });
 }
-
-// for (let i = 0; i < 1000; ++i) {
-//   const id = await nanoid(32);
-//   const name = await nanoid(16);
-//   new Promise<void>((resolve, reject) => {
-//     connection.query(`INSERT INTO packages (packageId, packageName, authorId, authorName, description, packageType) VALUES ("${id}", "package${name}", "user${name}", "name${name}", "A generic description that really doesn't matter what it is anyway since these are only test values and will ultimately be replaced at some point these are very very very very very very large descriptions wow", "other");`, err => {
-//       if (err)
-//         return reject(err);
-
-//       for (let i = 0; i < 12; ++i) {
-
-//         new Promise<void>((resolve, reject) => {
-//           const major = randomIntFromInterval(1, 5),
-//             minor = randomIntFromInterval(0, 10),
-//             patch = randomIntFromInterval(0, 10);
-//           const v = `${major}.${minor}.${patch}`;
-//           const hash = crypto.createHash('sha256').update(v).digest('hex');
-//           const url = 'https://xpkgregistrydev.s3.us-east-2.amazonaws.com/arkin.test_package.xpkg?response-content-disposition=inline&X-Amz-Security-Token=IQoJb3JpZ2luX2VjEFUaCXVzLWVhc3QtMiJGMEQCICko%2FO89xA7rsd6TZnbvnL0tc1EECh53FxxtJRmulyU2AiAeZiW38wMEj8e5aVEZGiV0Lsw3k8wLdioc9xm5W%2Br48CrkAgguEAAaDDk1MjIxNzY4OTg2NyIMVlzqdtYUdKaS%2BJHGKsECKDka6jUhNvyttt8vLcKwECXcBMSodWbSbIQ%2FRwygG1vosuNQ5FK2ZP2UuCEOuFDKjsQWUqf8Cj%2F6yF8%2FRRGBvpg0rAE9alkRsVXiI8nEuZVFGTw0SH881dJCISGW4MS%2BMPdyQYjJa76zqNU5vdWwdm5djRL%2FjDeqKhYdbQqgSnbYcl0YmcYckv3Dz45ScgW79w7YFjvy5cPr4BgWHlurJNMgILzVHKaDqQwVyvSQe1qU4oUfA7r7UYTMU89Sc0aQuJhrp2vumBdA4MXaLVQyEJuyLSqwLrm%2F6TPgDL9x5DQ%2B6eJ6CseRLQMldB9awy%2FZtGSfc5VEnZABe2M4DO2%2BB1vcVd%2FEaMAWuGNMYfUM2ayhUzLDCDYGKlsrGViQJI2a6hssvbxTBjvugQZwe%2FvzsDrNYN9y4k%2FObB9SBqmnVPg5ML%2FJupoGOrQCjv41Lv0WBBd1qM4rIvPQf%2FbgZMts0VeYCn48HrYzcp1e4jmiVP0gtWNWNVWR0r3FKod9X2HVkOMtLQFrbHhW31a2txdYWQdLFkJYavnFB8xR5eWbrOmj8TI5eX3OPpEhwYoemcFrRlobIH2QiG9DlhtAyPGgjpR%2BUjWJVOifvEQDBhN1Tgwjy7btqtLUoEOZxXMqnxeLhGKMhGei%2B7fUkTIKaeHgVAvsdD3wL8r2%2BUlhoTn2%2BKQJ0MOSIE55%2F2mPqSzBIFjjkaF9gksltd7rQkBR1H09o4eM364F4neRVtUY3BEyW9g8n0lMGzNh0lW5aom4VBxx%2BLu%2B4SGhGT5%2FCfy6an2h8bLbRQPq1txwFojDUllw3J5R8j%2F8kJ2TUEJri1vA%2BDZom23yuQexgt06dkvMfgk%3D&X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Date=20221018T131343Z&X-Amz-SignedHeaders=host&X-Amz-Expires=43199&X-Amz-Credential=ASIA53NEY34F2XG5IJ62%2F20221018%2Fus-east-2%2Fs3%2Faws4_request&X-Amz-Signature=3f276410305d830e572b2ff16425f3b992a1714ff5b871a94929b9e5ff5a3920';
-//           connection.query('INSERT INTO versions (packageId, version, hash, published, approved, loc) VALUES (?, ?, UNHEX(?), True, True, ?);', [id, v, hash, url], err => {
-//             if (err)
-//               return reject(err);
-//             resolve();
-//           });
-//         });
-//       }
-//       resolve();
-//     });
-//   });
-// }
-
-// /**
-//  * Get a random integer between a minimum and maximum.
-//  * 
-//  * @param {number} min The minimum number (inclusive).
-//  * @param {number} max The maximum number (inclusive).
-//  * @returns {number} A random number between `min` and `max` inclusive.
-//  */
-// function randomIntFromInterval(min: number, max: number) {
-//   return Math.floor(Math.random() * (max - min + 1) + min);
-// }
 
 await updateJSON();
 setInterval(updateJSON, 60 * 1000);

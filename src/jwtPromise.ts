@@ -12,16 +12,19 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
+import jwt from 'jsonwebtoken';
 
 /**
- * Send an email to someone. 
+ * Decode a Json Web Token asynchronously using promises.
  * 
- * @param {string} address The email address of the recipient.
- * @param {string} subject The subject line of the email.
- * @param {string} body The body/message of the email.
+ * @param token The token to decode.
+ * @param secret The secret used to sign the token.
+ * @returns The payload of the token.
  */
-export default async function (address: string, subject: string, body: string): Promise<void> {
-
-  // TODO This
-  console.log(`Email to ${address}: [${subject}] -- ` + body);
+export function decode(token: string, secret: string) {
+  return new Promise((resolve, reject) => jwt.verify(token, secret, (err, payload) => {
+    if (err)
+      return reject(err);
+    resolve(payload);
+  }));
 }

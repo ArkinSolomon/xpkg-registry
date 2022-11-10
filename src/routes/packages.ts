@@ -126,7 +126,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     return res.sendStatus(400);
   }
 
-  const {id: authorId,name: authorName} = req.user as AuthTokenPayload;
+  const { id: authorId, name: authorName } = req.user as AuthTokenPayload;
 
   if (!file || !packageId || !version || !type)
     return res.sendStatus(400);
@@ -195,7 +195,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     const uninstallFound = foundScripts.includes('uninstall.xpkgs');
     const upgradeFound = foundScripts.includes('upgrade.xpkgs');
 
-    const promises = [];
+    const promises = [] as Promise<void>[];
     if (installFound)
       promises.push(fsProm.copyFile(defaultInstallScript, installScript, fsProm.constants.COPYFILE_EXCL));
     if (uninstallFound)

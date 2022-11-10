@@ -39,14 +39,16 @@ import Express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import query from './database.js';
-import jwt from 'jsonwebtoken';
+import * as jwtPromise from './jwtPromise.js';
 import bodyParser from 'body-parser';
 import cookieParser from 'cookie-parser';
+import cors from 'cors';
 
 const app = Express();
 app.use(cookieParser(process.env.COOKIE_SECRET));
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({extended: false}));
+app.use(bodyParser.urlencoded({ extended: false }));
+app.use(cors());
 
 const storeFile = path.resolve('./data.json');
 
@@ -69,16 +71,11 @@ app.use(authRoutes, async (req, res, next) => {
   const { authorization: token } = req.signedCookies;
   try {
     if (!token || typeof token !== 'string' || !token.length)
+      
       // Just throw and let exception handling redirect/notify
       throw null;
 
-    const payload = await new Promise<AuthTokenPayload>((resolve, reject) =>
-      jwt.verify(token, process.env.AUTH_SECRET as string, (err, payload) => {
-        if (err)
-          return reject(err);
-        resolve(payload as AuthTokenPayload);
-      })
-    );
+    const payload = await jwtPromise.decode(token, process.env.AUTH_SECRET as string) as AuthTokenPayload;
     const { id, session } = payload;
 
     let expectedSession: string;
@@ -106,9 +103,7 @@ app.use(authRoutes, async (req, res, next) => {
 
     next();
   } catch (_) {
-    return res
-      .status(401)
-      .redirect('/');
+    return res.sendStatus(401);
   }
 });
 

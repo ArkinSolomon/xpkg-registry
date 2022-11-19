@@ -41,11 +41,9 @@ import path from 'path';
 import query from './database.js';
 import * as jwtPromise from './jwtPromise.js';
 import bodyParser from 'body-parser';
-import cookieParser from 'cookie-parser';
 import cors from 'cors';
 
 const app = Express();
-app.use(cookieParser(process.env.COOKIE_SECRET));
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
@@ -55,6 +53,7 @@ const storeFile = path.resolve('./data.json');
 import html from './routes/html.js';
 import packages from './routes/packages.js';
 import auth, { AuthTokenPayload } from './routes/auth.js';
+import account from './routes/account.js';
 
 // Update this with all routes that require tokens
 const authRoutes = ['/packages/upload', '/dashboard'];
@@ -68,7 +67,8 @@ setInterval(() => {
 }, 3e5);
 
 app.use(authRoutes, async (req, res, next) => {
-  const { authorization: token } = req.signedCookies;
+
+  const { authorization: token } = req.body.token;
   try {
     if (!token || typeof token !== 'string' || !token.length)
       
@@ -110,6 +110,7 @@ app.use(authRoutes, async (req, res, next) => {
 app.use('/', html);
 app.use('/packages', packages);
 app.use('/auth', auth);
+app.use('/account', account);
 
 /**
  * Update the JSON file which is storing all of the data.

@@ -4,3 +4,4 @@ node_modules/
 .vscode/
 out/
 data.json
+.DS_STORE

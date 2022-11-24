@@ -13,11 +13,58 @@
  * either express or implied limitations under the License.
  */
 import { Router } from 'express';
+import { AuthTokenPayload, validateName } from './auth.js';
+import mysql from 'mysql2';
+import query from '../database.js';
+import { nanoid } from 'nanoid/async';
 
 const route = Router();
 
 route.post('/data', (req, res) => {
-  return res.json({ name: 'Test Name' });
+  const user = req.user as AuthTokenPayload;
+  return res.json({ id: user.id, name: user.name });
+});
+
+route.post('/changename', (req, res) => {
+  const user = req.user as AuthTokenPayload;
+  const { newName } = req.body as { newName: string; };
+
+  const checkName = newName.trim().toLowerCase();
+  if (user.name.trim().toLowerCase() === checkName ||
+    !validateName(checkName)
+  )
+    return res.sendStatus(400);
+
+  const getQuery = mysql.format('SELECT lastChange FROM authors WHERE authorId = ? AND session = ?;', [user.id, user.session]);
+  query(getQuery, async (err, rows: { lastChange: Date | null; }[]) => {
+    if (err) {
+      console.error(err);
+      return res.sendStatus(500);
+    }
+
+    if (rows.length !== 1)
+      return res.sendStatus(401);
+
+    const lastChangeDate = rows[0].lastChange;
+
+    // Allow name change if it's been more than 10 days (see https://bobbyhadz.com/blog/javascript-check-if-date-within-30-days)
+    // or if there is no date stored (the account has just been created)
+    const daysSinceChange = Math.abs((lastChangeDate as unknown as Date).getTime() - 2.592e9) / 8.64e7;
+    if (lastChangeDate || daysSinceChange < 30)
+      return res.sendStatus(406);
+
+    const session = await nanoid(16);
+
+    const updateQuery = mysql.format('UPDATE authors SET authorName = ?, checkName = ?, session = ?, lastChange = ? WHERE authorId = ?;', [newName.trim(), checkName, session, new Date(), user.id]);
+    query(updateQuery, err => {
+      if (err) {
+        console.error(err);
+        return res.sendStatus(500);
+      }
+
+      res.sendStatus(204);
+    });
+  });
 });
 
 export default route;

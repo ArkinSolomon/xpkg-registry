@@ -56,22 +56,20 @@ import auth, { AuthTokenPayload } from './routes/auth.js';
 import account from './routes/account.js';
 
 // Update this with all routes that require tokens
-const authRoutes = ['/packages/upload', '/dashboard'];
+const authRoutes = ['/packages/upload', '/account'];
 
 let authSessionCache: Record<string, string> = {};
 
-// We don't want the cache to get too big, and we don't want to hold it for too long
-const maxCacheSize = 500;
+// We don't want to hold the cache for too long
 setInterval(() => {
   authSessionCache = {};
-}, 3e5);
+}, 3000);
 
 app.use(authRoutes, async (req, res, next) => {
-
-  const { authorization: token } = req.body.token;
   try {
+    const { token } = req.body;
     if (!token || typeof token !== 'string' || !token.length)
-      
+
       // Just throw and let exception handling redirect/notify
       throw null;
 
@@ -95,8 +93,6 @@ app.use(authRoutes, async (req, res, next) => {
     if (session.toLowerCase() !== expectedSession.toLowerCase())
       throw null;
 
-    if (Object.keys(authSessionCache).length > maxCacheSize)
-      authSessionCache = {};
     authSessionCache[id] = expectedSession;
 
     req.user = payload;

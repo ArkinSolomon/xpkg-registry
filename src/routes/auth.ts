@@ -99,10 +99,7 @@ route.post('/create', (req, res) => {
   const { name, password } = body;
   const email = body.email.toLowerCase();
 
-  if (!email || !name
-    || typeof email !== 'string' || typeof name !== 'string'
-    || name.length < 3 || name.length > 32 || !validatePassword(password)
-    || !validateEmail(email))
+  if (!validateName(name) || !validatePassword(password) || !validateEmail(email))
     return res.sendStatus(400);
   const checkName = name.toLowerCase();
 
@@ -196,6 +193,16 @@ function validateEmail(email: string): boolean {
       .toLowerCase()
       .trim()
   ) && (email && typeof email === 'string' && email.length >= 4 && email.length <= 64) as boolean;
+}
+
+/**
+ * Check if a name is valid.
+ * 
+ * @param {string} name The name to validate.
+ * @returns {boolean} True if the name is valid.
+ */
+export function validateName(name: string): boolean {
+  return (name && typeof name === 'string' && name.length > 3 && name.length <= 32) as boolean;
 }
 
 /**

@@ -17,6 +17,7 @@ import { AuthTokenPayload, validateName } from './auth.js';
 import mysql from 'mysql2';
 import query from '../database.js';
 import { nanoid } from 'nanoid/async';
+import email from '../email.js';
 
 const route = Router();
 
@@ -35,8 +36,8 @@ route.post('/changename', (req, res) => {
   )
     return res.sendStatus(400);
 
-  const getQuery = mysql.format('SELECT lastChange FROM authors WHERE authorId = ? AND session = ?;', [user.id, user.session]);
-  query(getQuery, async (err, rows: { lastChange: Date | null; }[]) => {
+  const getQuery = mysql.format('SELECT lastChange, authorEmail FROM authors WHERE authorId = ? AND session = ?;', [user.id, user.session]);
+  query(getQuery, async (err, rows: { lastChange: Date | null; authorEmail: string; }[]) => {
     if (err) {
       console.error(err);
       return res.sendStatus(500);
@@ -62,6 +63,7 @@ route.post('/changename', (req, res) => {
         return res.sendStatus(500);
       }
 
+      email(rows[0].authorEmail, 'Name changed', `Your name on X-Pkg has been changed successfully. Your new name is ${newName.trim()}. This name will appear to all users.`);
       res.sendStatus(204);
     });
   });

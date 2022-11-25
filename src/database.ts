@@ -18,10 +18,10 @@
  *
  * @callback queryCallback
  * @param {Error|null} [err] The error thrown if the query errors, undefined if there was no error.
- * @param {string} [data] The data returned from the callback, undefined if there was an error.
+ * @param {*[]} [data] The data returned from the callback, undefined if there was an error.
  */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-type queryCallback = (err: Error | null, data?: any) => any;
+type queryCallback = (err: Error | null, data: any[]) => void;
 
 import mysql from 'mysql2';
 
@@ -35,23 +35,57 @@ const pool = mysql.createPool({
 });
 
 /**
+ * Execute a query from the connection pool using promises. See https://stackoverflow.com/questions/37102364/how-do-i-create-a-mysql-connection-pool-while-working-with-nodejs-and-express.
+ * 
+ * @function
+ * @param {string} query The query string to execute.
+ * @return {Promise<unknown>} A promise which resolves after the query is executed, containing the data from the query.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function query(queryString: string): Promise<any[]>;
+
+/**
  * Execute a query from the connection pool. See https://stackoverflow.com/questions/37102364/how-do-i-create-a-mysql-connection-pool-while-working-with-nodejs-and-express.
  * 
  * @function
  * @param {string} query The query string to execute.
  * @param {queryCallback} callback The callback to run after the connection.
  */
-export default function (query: string, callback: queryCallback) {
+function query(queryString: string, callback: queryCallback): void;
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function query(queryString: string, callback?: queryCallback): Promise<any[]> | void {
+
+  // Wrap the function in a promise if no callback is provided
+  if (!callback) {
+    return new Promise((resolve, reject) => {
+      query(queryString, (err, res) => {
+        if (err)
+          return reject(err);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        resolve(res as any[]);
+      });
+    });
+  }
+
   pool.getConnection((err, connection) => {
     if (err)
-      return callback(err);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      return callback(err, null as any);
 
-    connection.query(query, (err, data) => {
+    connection.query(queryString, (err, data) => {
       if (err)
-        return callback(err);
+        
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        return callback(err, null as any);
       connection.release();
-      callback(null, data as object);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      callback(null, data as any[]);
     });
     connection.on('error', callback);
   });
 }
+
+export default query;

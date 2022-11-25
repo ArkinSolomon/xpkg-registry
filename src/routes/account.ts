@@ -56,16 +56,19 @@ route.post('/changename', (req, res) => {
 
     const session = await nanoid(16);
 
-    const updateQuery = mysql.format('UPDATE authors SET authorName = ?, checkName = ?, session = ?, lastChange = ? WHERE authorId = ?;', [newName.trim(), checkName, session, new Date(), user.id]);
-    query(updateQuery, err => {
-      if (err) {
-        console.error(err);
-        return res.sendStatus(500);
-      }
+
+    // TODO test update of packages table
+    const updateQuery1 = mysql.format('UPDATE authors SET authorName = ?, checkName = ?, session = ?, lastChange = ? WHERE authorId = ?;', [newName.trim(), checkName, session, new Date(), user.id]);
+    const updateQuery2 = mysql.format('UPDATE packages SET authorName = ? WHERE authorId = ?;', [newName.trim(), user.id]);
+    try {
+      await Promise.all([query(updateQuery1), query(updateQuery2)]);
 
       email(rows[0].authorEmail, 'Name changed', `Your name on X-Pkg has been changed successfully. Your new name is ${newName.trim()}. This name will appear to all users.`);
       res.sendStatus(204);
-    });
+    } catch (e) {
+      console.error(e);
+      return res.sendStatus(500);
+    }
   });
 });
 

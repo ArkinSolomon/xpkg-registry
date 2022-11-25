@@ -69,7 +69,7 @@ route.post('/login', (req, res) => {
   if (!validateEmail(email) || !validatePassword(password))
     return res.sendStatus(400);
 
-  const lookupQuery = mysql.format('SELECT * FROM authors WHERE authorEmail=?;', [email]);
+  const lookupQuery = mysql.format('SELECT * FROM authors WHERE authorEmail = ?;', [email]);
   query(lookupQuery, async (err, r: { authorId: string, authorName: string, password: string, email: string, session: string }[]) => {
     if (err) {
       console.error(err);

@@ -56,14 +56,14 @@ import auth, { AuthTokenPayload } from './routes/auth.js';
 import account from './routes/account.js';
 
 // Update this with all routes that require tokens
-const authRoutes = ['/packages/upload', '/account'];
+const authRoutes = ['/packages/upload', '/packages/new', '/account'];
 
 let authSessionCache: Record<string, string> = {};
 
 // We don't want to hold the cache for too long
 setInterval(() => {
   authSessionCache = {};
-}, 3000);
+}, 5000);
 
 app.use(authRoutes, async (req, res, next) => {
   try {
@@ -111,7 +111,7 @@ app.use('/account', account);
 /**
  * Update the JSON file which is storing all of the data.
  */
-async function updateJSON(): Promise<void> {
+async function updateData(): Promise<void> {
   const data: DatabaseRecord[] = [];
 
   const packageData = await new Promise<DatabaseRecord[]>((resolve, reject) => {
@@ -122,8 +122,7 @@ async function updateJSON(): Promise<void> {
     });
   });
 
-  for (const i in packageData) {
-    const d = packageData[i];
+  for (const d of packageData) {
     d.versions = await getVersions(d.packageId);
 
     if (d.versions.length)
@@ -151,8 +150,8 @@ async function getVersions(packageId: string): Promise<string[]> {
   });
 }
 
-await updateJSON();
-setInterval(updateJSON, 60 * 1000);
+await updateData();
+setInterval(updateData, 60 * 1000);
 app.listen(5020, () => {
   console.log('Server started');
 });

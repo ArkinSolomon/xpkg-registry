@@ -57,6 +57,7 @@ import jwt from 'jsonwebtoken';
 import * as jwtPromise from '../jwtPromise.js';
 import { nanoid } from 'nanoid/async';
 import sendEmail from '../email.js';
+import isProfane from '../profanityFilter.js';
 
 const route = Router();
 const expiresIn = 2.592e9;
@@ -202,7 +203,7 @@ function validateEmail(email: string): boolean {
  * @returns {boolean} True if the name is valid.
  */
 export function validateName(name: string): boolean {
-  return (name && typeof name === 'string' && name.length > 3 && name.length <= 32) as boolean;
+  return (name && typeof name === 'string' && name.length > 3 && name.length <= 32 && !isProfane(name)) as boolean;
 }
 
 /**

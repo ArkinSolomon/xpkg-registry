@@ -62,6 +62,7 @@ import crypto from 'crypto';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { AuthTokenPayload } from './auth.js';
+import isProfane from '../profanityFilter.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -117,15 +118,62 @@ route.post('/new', upload.single('file'), async (req, res) => {
   try {
     packageId = req.body.packageId.trim().toLowerCase();
     packageName = req.body.packageName.trim();
-    checkPackageName = req.body.packageName.trim().toLowerCase();
+    checkPackageName = packageName.toLowerCase();
+
+    // TODO make this an enum
     packageType = req.body.packageType.trim().toLowerCase();
-    description = (req.body.description ?? '').trim();
+
+    description = req.body.description.trim();
   } catch (e) {
     console.error(e);
     return res
       .status(400)
-      .send('invalid_form_data');
+      .send('missing_form_data');
   }
+
+  if (packageId.length < 6)
+    return res
+      .status(400)
+      .send('short_id');
+  else if (packageId.length > 32)
+    return res
+      .status(400)
+      .send('long_id');
+  else if (!/^[a-z0-9_.]+$/i.test(packageId))
+    return res
+      .status(400)
+      .send('invalid_id');
+
+  if (packageName.length < 3)
+    return res
+      .status(400)
+      .send('short_name');
+  else if (packageName.length > 32)
+    return res
+      .status(400)
+      .send('long_name');
+
+  if (description.length < 10)
+    return res
+      .status(400)
+      .send('short_desc');
+  else if (description.length > 8192)
+    return res
+      .status(400)
+      .send('long_desc');
+
+  if (isProfane(packageId))
+    return res
+      .status(400)
+      .send('profane_id');
+  else if (isProfane(packageName))
+    return res
+      .status(400)
+      .send('profane_name');
+  else if (isProfane(description))
+    return res
+      .status(400)
+      .send('profane_desc');
 
   const { id: authorId, name: authorName } = req.user as AuthTokenPayload;
 
@@ -147,11 +195,11 @@ route.post('/new', upload.single('file'), async (req, res) => {
         .status(400)
         .send('name_in_use');
 
-    const packageCommand = mysql.format('INSERT INTO packages (packageId, packageName, authorId, authorName, description, packageType, checkPackageName) VALUES (?, ?, ?, ?, ?, ?, ?);', [packageId, packageName, authorId, authorName, description, packageType, checkPackageName]);
+    const packageCommand = mysql.format('INSERT INTO packages (packageId, packageName, authorId, authorName, description, packageType, checkPackageName) VALUES (?, ?, ?, ?, ?, ?, ?);',
+      /*       Get around eslint + auto formatting lol      */[packageId, packageName, authorId, authorName, description, packageType, checkPackageName]);
     await query(packageCommand);
 
     return res.sendStatus(204);
-
   } catch (e) {
     console.error(e);
     return res.sendStatus(500);

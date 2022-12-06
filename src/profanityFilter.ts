@@ -13,9 +13,10 @@
  * either express or implied limitations under the License.
  */
 import fs from 'fs';
+import path from 'path';
 
 const words = fs
-  .readFileSync('../resources/profanity_list.txt', 'utf-8')
+  .readFileSync(path.resolve('.', 'resources', 'profanity_list.txt'), 'utf-8')
   .split(/\n/g);
 
 /**

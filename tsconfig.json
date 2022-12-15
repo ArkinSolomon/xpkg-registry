@@ -100,6 +100,6 @@
     // "skipDefaultLibCheck": true,                      /* Skip type checking .d.ts files that are included with TypeScript. */
     "skipLibCheck": true                                 /* Skip type checking all .d.ts files. */
   },
-  "include": ["./src/**.ts", "src/index.ts"],
+  "include": ["./src/**.ts", "src/index.ts", "src/util/database.ts", "src/util/email.ts", "src/util/jwtPromise.ts", "src/util/profanityFilter.ts"],
   "jsdoc": "jsdoc/out"
 }

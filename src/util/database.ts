@@ -12,6 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
 /**
  * Callback after executing a SQL query.
@@ -20,7 +21,6 @@
  * @param {Error|null} [err] The error thrown if the query errors, undefined if there was no error.
  * @param {*[]} [data] The data returned from the callback, undefined if there was an error.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type queryCallback = (err: Error | null, data: any[]) => void;
 
 import mysql from 'mysql2';
@@ -41,7 +41,6 @@ const pool = mysql.createPool({
  * @param {string} query The query string to execute.
  * @return {Promise<unknown>} A promise which resolves after the query is executed, containing the data from the query.
  */
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function query(queryString: string): Promise<any[]>;
 
 /**
@@ -53,7 +52,6 @@ function query(queryString: string): Promise<any[]>;
  */
 function query(queryString: string, callback: queryCallback): void;
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
 function query(queryString: string, callback?: queryCallback): Promise<any[]> | void {
 
   // Wrap the function in a promise if no callback is provided
@@ -63,7 +61,6 @@ function query(queryString: string, callback?: queryCallback): Promise<any[]> | 
         if (err)
           return reject(err);
 
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         resolve(res as any[]);
       });
     });
@@ -71,17 +68,14 @@ function query(queryString: string, callback?: queryCallback): Promise<any[]> | 
 
   pool.getConnection((err, connection) => {
     if (err)
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return callback(err, null as any);
 
     connection.query(queryString, (err, data) => {
       if (err)
         
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         return callback(err, null as any);
       connection.release();
 
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       callback(null, data as any[]);
     });
     connection.on('error', callback);

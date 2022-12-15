@@ -49,15 +49,15 @@ export type PasswordResetPayload = {
   session: string;
 }
 
-import query from '../database.js';
+import query from '../util/database.js';
 import mysql from 'mysql2';
 import bcrypt from 'bcrypt';
 import { Router } from 'express';
 import jwt from 'jsonwebtoken';
-import * as jwtPromise from '../jwtPromise.js';
+import * as jwtPromise from '../util/jwtPromise.js';
 import { nanoid } from 'nanoid/async';
-import sendEmail from '../email.js';
-import isProfane from '../profanityFilter.js';
+import sendEmail from '../util/email.js';
+import isProfane from '../util/profanityFilter.js';
 
 const route = Router();
 const expiresIn = 2.592e9;
@@ -65,7 +65,12 @@ const expiresIn = 2.592e9;
 route.post('/login', (req, res) => {
   const body = req.body as { email: string; password: string; };
   const { password } = body;
-  const email = body.email.toLowerCase();
+  let email!: string;
+  try {
+    email = body.email.toLowerCase();
+  } catch (e) {
+    res.sendStatus(500);
+  }
 
   if (!validateEmail(email) || !validatePassword(password))
     return res.sendStatus(400);

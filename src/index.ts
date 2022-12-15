@@ -38,8 +38,8 @@ import mysql from 'mysql2';
 import Express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
-import query from './database.js';
-import * as jwtPromise from './jwtPromise.js';
+import query from './util/database.js';
+import * as jwtPromise from './util/jwtPromise.js';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 
@@ -50,7 +50,6 @@ app.use(cors());
 
 const storeFile = path.resolve('./data.json');
 
-import html from './routes/html.js';
 import packages from './routes/packages.js';
 import auth, { AuthTokenPayload } from './routes/auth.js';
 import account from './routes/account.js';
@@ -66,6 +65,7 @@ setInterval(() => {
 }, 5000);
 
 app.use(authRoutes, async (req, res, next) => {
+  console.log(req.body);
   try {
     const { token } = req.body;
     if (!token || typeof token !== 'string' || !token.length)
@@ -103,7 +103,6 @@ app.use(authRoutes, async (req, res, next) => {
   }
 });
 
-app.use('/', html);
 app.use('/packages', packages);
 app.use('/auth', auth);
 app.use('/account', account);

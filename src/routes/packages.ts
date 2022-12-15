@@ -26,7 +26,7 @@ type ManifestData = {
   version?: string;
   type?: string;
   authorId?: string;
-}
+};
 
 /**
  * The temporary data stored while the user is going through the upload wizard.
@@ -44,11 +44,11 @@ type TempData = {
   installFound: boolean;
   uninstallFound: boolean;
   upgradeFound: boolean;
-}
+};
 
 import archiver from 'archiver';
 import path from 'path';
-import query from '../database.js';
+import query from '../util/database.js';
 import { Router } from 'express';
 import mysql from 'mysql2';
 import multer from 'multer';
@@ -57,12 +57,13 @@ import fs from 'fs';
 import fsProm from 'fs/promises';
 import { nanoid } from 'nanoid/async';
 import unzip from 'unzipper';
-import Mode from 'stat-mode';
 import crypto from 'crypto';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { AuthTokenPayload } from './auth.js';
-import isProfane from '../profanityFilter.js';
+import isProfane from '../util/profanityFilter.js';
+import isVersionValid from '../util/version.js';
+import fileProcessor from '../util/fileProcessor.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -114,7 +115,9 @@ route.get('/:package/:version', (req, res) => {
 
 route.post('/new', upload.single('file'), async (req, res) => {
 
-  let packageId, packageName, checkPackageName, packageType, description;
+  const file = req.file;
+
+  let packageId, packageName, checkPackageName, packageType, description, initialVersion;
   try {
     packageId = req.body.packageId.trim().toLowerCase();
     packageName = req.body.packageName.trim();
@@ -124,12 +127,24 @@ route.post('/new', upload.single('file'), async (req, res) => {
     packageType = req.body.packageType.trim().toLowerCase();
 
     description = req.body.description.trim();
+    initialVersion = req.body.initialVersion.trim().toLowerCase();
+
+    checkType(packageId, 'string');
+    checkType(packageName, 'string');
+    checkType(packageType, 'string');
+    checkType(description, 'string');
+    checkType(initialVersion, 'string');
   } catch (e) {
     console.error(e);
     return res
       .status(400)
       .send('missing_form_data');
   }
+
+  if (!file)
+    return res
+      .status(400)
+      .send('no_file');
 
   if (packageId.length < 6)
     return res
@@ -162,6 +177,21 @@ route.post('/new', upload.single('file'), async (req, res) => {
       .status(400)
       .send('long_desc');
 
+  if (initialVersion.length < 1)
+    return res
+      .status(400)
+      .send('no_version');
+  else if (initialVersion.length > 15)
+    return res
+      .status(400)
+      .send('long_version');
+
+  const version = isVersionValid(initialVersion);
+  if (!version)
+    return res
+      .status(400)
+      .send('invalid_verison');
+
   if (isProfane(packageId))
     return res
       .status(400)
@@ -176,6 +206,20 @@ route.post('/new', upload.single('file'), async (req, res) => {
       .send('profane_desc');
 
   const { id: authorId, name: authorName } = req.user as AuthTokenPayload;
+
+  const n = await nanoid(32);
+  const destFile = path.join(os.tmpdir(), 'unzipped', n, packageId + '.zip');
+  const outFile = path.join(os.tmpdir(), 'xpkg', n, packageId + '.xpkg');
+  await fs.createReadStream(file.path).pipe(unzip.Extract({ path: destFile })).promise();
+  try {
+    await fileProcessor(destFile, outFile, authorId, packageName, packageId, version, packageType);
+    console.log(destFile);
+    console.log(outFile);
+  } catch (e) {
+    return res
+      .sendStatus(422)
+      .send('no_package_folder');
+  }
 
   // Check for duplicates
   try {
@@ -207,6 +251,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
 });
 
 route.post('/upload', upload.single('file'), async (req, res) => {
+  console.log(req.file);
   // const file = req.file;
   // const n = await nanoid(32);
   // const destFile = path.join(os.tmpdir(), 'unzipped', n);
@@ -296,23 +341,23 @@ route.post('/upload', upload.single('file'), async (req, res) => {
 
   //   manifest.authorId = authorId;
 
-  //   if (findTrueFileRecursively(packagePath, (s, p) => {
-  //     const mode = Mode(s);
+  // if (findTrueFileRecursively(packagePath, (s, p) => {
+  //   const mode = Mode(s);
 
-  //     // We also want to delete the file if it's a .DS_STORE
-  //     if (path.basename(p) === '.DS_STORE') {
-  //       fs.unlinkSync(p);
-  //       return false;
-  //     }
+  //   // We also want to delete the file if it's a .DS_STORE
+  //   if (path.basename(p) === '.DS_STORE') {
+  //     fs.unlinkSync(p);
+  //     return false;
+  //   }
 
-  //     return s.isSymbolicLink()
+  //   return s.isSymbolicLink()
 
-  //       // Need to test to make sure this catches windows, mac, and linux executables
-  //       || ((mode.owner.execute || mode.group.execute || mode.others.execute) && manifest.type !== 'executable');
-  //   }))
-  //     return res
-  //       .status(400)
-  //       .send('invalid_files');
+  //     // Need to test to make sure this catches windows, mac, and linux executables
+  //     || ((mode.owner.execute || mode.group.execute || mode.others.execute) && manifest.type !== 'executable');
+  // }))
+  //   return res
+  //     .status(400)
+  //     .send('invalid_files');
 
   //   const foundScripts = (await fsProm.readdir(packagePath))
   //     .filter(f => f.endsWith('.xpkgs'));
@@ -393,49 +438,15 @@ route.post('/upload', upload.single('file'), async (req, res) => {
   return res.sendStatus(503);
 });
 
-/** 
- * Find if the callback is true for any child file in any recursive subdirectory.
- * 
- * @param dir The top most parent directory.
- * @param cb The callback to check for truthiness.
- * @returns True if cb is true for any file, or false otherwise.
- */
-function findTrueFileRecursively(dir: string, cb: (stats: fs.Stats, path: string) => boolean): boolean {
-  const stats = fs.lstatSync(dir);
-  if (stats.isDirectory()) {
-    for (const file of fs.readdirSync(dir)) {
-      const filePath = path.join(dir, file);
-      const stats = fs.lstatSync(filePath);
-      if (stats.isDirectory())
-        return findTrueFileRecursively(filePath, cb);
-      else if (cb(stats, filePath))
-        return true;
-    }
-    return false;
-  } else
-    return cb(stats, dir);
-}
-
 /**
- * Zip an entire directory to a path. See https://stackoverflow.com/questions/15641243/need-to-zip-an-entire-directory-using-node-js.
+ * Check the type of a variable and throw an exception if they don't match.
  * 
- * @param {String} sourceDir The directory of the folder to compress (/some/folder/to/compress)
- * @param {String} outPath The otuput path of the zip (/path/to/created.zip)
- * @returns {Promise<void>} A promise which resolves when the zip file is done writing.
+ * @param {*} variable The variable to check the type of.
+ * @param {string} type The type that the variable is expected to be. 
  */
-function zipDirectory(sourceDir: string, outPath: string): Promise<void> {
-  const archive = archiver('zip', { zlib: { level: 9 } });
-  const stream = fs.createWriteStream(outPath);
-
-  return new Promise((resolve, reject) => {
-    archive
-      .directory(sourceDir, false)
-      .on('error', (err: unknown) => reject(err))
-      .pipe(stream);
-
-    stream.on('close', () => resolve());
-    archive.finalize();
-  });
+function checkType(variable: unknown, type: string): void {
+  if (typeof variable !== type)
+    throw new Error('Types don\'t match');
 }
 
 export default route;

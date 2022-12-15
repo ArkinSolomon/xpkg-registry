@@ -54,9 +54,9 @@ type PackageData = {
 import { Router } from 'express';
 import { AuthTokenPayload, validateName } from './auth.js';
 import mysql from 'mysql2';
-import query from '../database.js';
+import query from '../util/database.js';
 import { nanoid } from 'nanoid/async';
-import email from '../email.js';
+import email from '../util/email.js';
 
 const route = Router();
 

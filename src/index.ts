@@ -65,10 +65,9 @@ setInterval(() => {
 }, 5000);
 
 app.use(authRoutes, async (req, res, next) => {
-  console.log(req.body);
   try {
-    const { token } = req.body;
-    if (!token || typeof token !== 'string' || !token.length)
+    const token = req.headers.authorization;
+    if (!token || typeof token !== 'string')
 
       // Just throw and let exception handling redirect/notify
       throw null;

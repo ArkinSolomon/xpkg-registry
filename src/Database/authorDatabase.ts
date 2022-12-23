@@ -14,6 +14,24 @@
  */
 
 /**
+ * The data in the database for an author.
+ * 
+ * @typedef {Object} AuthorData 
+ * @property {string} authorId The id of the author.
+ * @property {string} authorName The name of the author.
+ * @property {string} authorEmail The email of the author.
+ * @property {boolean} verified True if the author has verified their email.
+ * @property {Date} [lastChange] The point in time which the user last changed their email. Undefined if the user has never changed their name.
+ */
+export type AuthorData = {
+  authorId: string;
+  authorName: string;
+  authorEmail: string;
+  verified: boolean;
+  lastChange?: Date;
+};
+
+/**
  * Interface that all author databases implement.
  * 
  * @interface AuthorDatabase
@@ -33,10 +51,20 @@ interface AuthorDatabase {
   /**
    * Get the session of the author.
    * 
+   * @async
+   * @name AuthorDatabase#getSession
    * @param {string} authorId The id of the author to get the session of.
    * @returns {Promise<string>} A promise which resolves to the session of the author.
    */
   getSession(authorId: string): Promise<string>;
+
+  /**
+   * Get a bunch of the data for an author from the database.
+   * 
+   * @param authorId The id of the author who's data we're getting.
+   * @returns {Promise<AuthorData>} A promise which resolves to all of the data of an author.
+   */
+  getAuthor(authorId: string): Promise<AuthorData>;
 
   updateAuthorPassword(authorId: string, newPassword: string): Promise<string>;
 

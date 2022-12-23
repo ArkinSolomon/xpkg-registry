@@ -12,7 +12,7 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
-import AuthorDatabase from './Database/authorDatabase.js';
+import AuthorDatabase, { AuthorData } from './Database/authorDatabase.js';
 
 const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
 
@@ -25,6 +25,7 @@ export default class Author {
   private _name: string;
   private _email: string;
   private _verified: boolean;
+  private _lastChange: Date;
 
   /**
    * Get the id of a user.
@@ -65,24 +66,40 @@ export default class Author {
   /**
    * Check if the user is verified.
    * 
-   * @return {boolean} True if the user is verified.
+   * @return {boolean} True if the user is has verified their email.
    */
   get isVerified(): boolean {
     return this._verified;
   }
 
   /**
+   * The last date that the author changed their name.
+   * 
+   * @returns {Date} The date of the last time this author changed their name, or the Unix epoch if they never have.
+   */
+  get lastChangeDate(): Date {
+    return this._lastChange;
+  }
+
+  /**
    * Create a new user explicitly.
    * 
-   * @param {string} id The id of the user.
-   * @param {string} name The name of the user.
-   * @param {string} email The email of the user.
-   * @param {boolean} verified True if the user is verified.
+   * @param {AuthorData} data The data of the author retrieved from the database.
    */
-  constructor(id: string, name: string, email: string, verified: boolean) {
-    this._id = id.trim();
-    this._name = name.trim();
-    this._email = email.toLowerCase().trim();
-    this._verified = verified;
+  constructor(data: AuthorData) {
+    this._id = data.authorId.trim();
+    this._name = data.authorName.trim();
+    this._email = data.authorEmail.toLowerCase().trim();
+    this._verified = data.verified;
+    this._lastChange = data.lastChange ?? new Date(0);
+  }
+
+  /**
+   * Get the session of the user. 
+   * 
+   * @returns {Promise<string>} The session of the user.
+   */
+  async getSession(): Promise<string> {
+    return authorDatabase.getSession(this._id);
   }
 }

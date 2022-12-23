@@ -38,19 +38,27 @@ import account from './routes/account.js';
 
 import PackageDatabase, { PackageData } from './Database/packageDatabase.js';
 import AuthorDatabase from './Database/authorDatabase.js';
+import Author from './author.js';
 
 const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
 const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
 
 // Update this with all routes that require tokens
-const authRoutes = ['/packages/upload', '/packages/new', '/account'];
+const authRoutes = [
+  '/packages/upload',
+  '/packages/new',
+  '/account'
+];
 
+// A cache indexed by author id
 let authSessionCache: Record<string, string> = {};
+let authorCache: Record<string, Author> = {};
 
 // We don't want to hold the cache for too long
 setInterval(() => {
   authSessionCache = {};
-}, 5000);
+  authorCache = {};
+}, 10000);
 
 app.use(authRoutes, async (req, res, next) => {
   try {
@@ -66,13 +74,21 @@ app.use(authRoutes, async (req, res, next) => {
     const expectedSession = Object.hasOwnProperty.call(authSessionCache, id) ?
       authSessionCache[id] : await authorDatabase.getSession(id);
     
-    if (session !== expectedSession)
+    // If the session is invalid remove it from the cache
+    if (session !== expectedSession) {
+      delete authSessionCache[id];
+      delete authorCache[id];
       throw null;
+    }
+    
+    const author = Object.hasOwnProperty.call(authorCache, id) ?
+      authorCache[id] : new Author(await authorDatabase.getAuthor(id));
 
+    // Update the cache
     authSessionCache[id] = expectedSession;
+    authorCache[id] = author;
 
-    req.user = payload;
-
+    req.user = author;
     next();
   } catch (_) {
     return res.sendStatus(401);

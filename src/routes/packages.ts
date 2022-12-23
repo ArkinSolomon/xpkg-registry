@@ -62,7 +62,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import { AuthTokenPayload } from './auth.js';
 import isProfane from '../util/profanityFilter.js';
-import isVersionValid from '../util/version.js';
+import isVersionValid, { versionStr } from '../util/version.js';
 import fileProcessor from '../util/fileProcessor.js';
 
 const storeFile = path.resolve('./data.json');
@@ -250,7 +250,6 @@ route.post('/new', upload.single('file'), async (req, res) => {
 
   // Upload the package and add it to the database
   try {
-    console.log(outFile);
     const fileBuffer = await fsProm.readFile(outFile);
     const hashSum = crypto.createHash('sha256');
     hashSum.update(fileBuffer);
@@ -265,7 +264,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
 
     const packageCommand = mysql.format('INSERT INTO packages (packageId, packageName, authorId, authorName, description, packageType, checkPackageName) VALUES (?, ?, ?, ?, ?, ?, ?);',
       /*       Get around eslint + auto formatting lol      */[packageId, packageName, authorId, authorName, description, packageType, checkPackageName]);
-    const versionCommand = mysql.format('INSERT INTO versions (packageId, version, hash, published, approved, loc, authorId) VALUES (?, ?, UNHEX(?), True, True, ?, ?);', [packageId, version.join(''), hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, authorId]);
+    const versionCommand = mysql.format('INSERT INTO versions (packageId, version, hash, published, approved, loc, authorId) VALUES (?, ?, UNHEX(?), True, True, ?, ?);', [packageId, versionStr(version), hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, authorId]);
     await Promise.all([query(packageCommand), query(versionCommand)]);
 
     return res.sendStatus(204);

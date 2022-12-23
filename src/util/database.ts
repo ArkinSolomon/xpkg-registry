@@ -35,7 +35,7 @@ const pool = mysql.createPool({
 });
 
 /**
- * Execute a query from the connection pool using promises. See https://stackoverflow.com/questions/37102364/how-do-i-create-a-mysql-connection-pool-while-working-with-nodejs-and-express.
+ * Execute a query from the connection pool using promises.
  * 
  * @function
  * @param {string} query The query string to execute.
@@ -51,7 +51,6 @@ function query(queryString: string): Promise<any[]>;
  * @param {queryCallback} callback The callback to run after the connection.
  */
 function query(queryString: string, callback: queryCallback): void;
-
 function query(queryString: string, callback?: queryCallback): Promise<any[]> | void {
 
   // Wrap the function in a promise if no callback is provided

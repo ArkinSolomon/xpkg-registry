@@ -57,6 +57,11 @@ import mysql from 'mysql2';
 import query from '../util/database.js';
 import { nanoid } from 'nanoid/async';
 import email from '../util/email.js';
+import PackageDatabase from '../Database/packageDatabase.js';
+import AuthorDatabase from '../Database/authorDatabase.js';
+
+const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
+const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
 
 const route = Router();
 
@@ -65,48 +70,42 @@ route.post('/data', (req, res) => {
   return res.json({ id: user.id, name: user.name });
 });
 
-route.post('/changename', (req, res) => {
+route.post('/changename', async (req, res) => {
   const user = req.user as AuthTokenPayload;
-  const { newName } = req.body as { newName: string; };
+  let { newName } = req.body as { newName: string; };
 
-  const checkName = newName.trim().toLowerCase();
-  if (user.name.trim().toLowerCase() === checkName ||
-    !validateName(checkName))
-    return res.sendStatus(400);
+  try {
+    newName = newName.trim();
 
-  const getQuery = mysql.format('SELECT lastChange, authorEmail FROM authors WHERE authorId = ? AND session = ?;', [user.id, user.session]);
-  query(getQuery, async (err, rows: { lastChange: Date | null; authorEmail: string; }[]) => {
-    if (err) {
-      console.error(err);
-      return res.sendStatus(500);
-    }
+    const checkName = newName.toLowerCase();
+    if (user.name.trim().toLowerCase() === checkName ||
+      !validateName(checkName))
+      return res.sendStatus(400);
 
-    if (rows.length !== 1)
-      return res.sendStatus(401);
-
-    const lastChangeDate = rows[0].lastChange;
+    const lastChangeDate = await authorDatabase.getLastNameChange(user.id);
 
     // Allow name change if it's been more than 10 days (see https://bobbyhadz.com/blog/javascript-check-if-date-within-30-days)
     // or if there is no date stored (the account has just been created)
-    const daysSinceChange = Math.abs((lastChangeDate as unknown as Date).getTime() - 2.592e9) / 8.64e7;
+    const daysSinceChange = Math.abs(lastChangeDate.getTime() - 2.592e9) / 8.64e7;
     if (lastChangeDate || daysSinceChange < 30)
       return res.sendStatus(406);
 
-    const session = await nanoid(16);
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [authorEmail, ..._] = await Promise.all([
+      authorDatabase.getEmail(user.id),
+      authorDatabase.updateAuthorName(user.id, newName),
+      packageDatabase.updateAuthorName(user.id, newName)
+    ]);
 
-    // TODO test update of packages table
-    const updateQuery1 = mysql.format('UPDATE authors SET authorName = ?, checkName = ?, session = ?, lastChange = ? WHERE authorId = ?;', [newName.trim(), checkName, session, new Date(), user.id]);
-    const updateQuery2 = mysql.format('UPDATE packages SET authorName = ? WHERE authorId = ?;', [newName.trim(), user.id]);
-    try {
-      await Promise.all([query(updateQuery1), query(updateQuery2)]);
+    //TODO? invalidate session
 
-      email(rows[0].authorEmail, 'Name changed', `Your name on X-Pkg has been changed successfully. Your new name is ${newName.trim()}. This name will appear to all users.`);
-      res.sendStatus(204);
-    } catch (e) {
-      console.error(e);
-      return res.sendStatus(500);
-    }
-  });
+    email(authorEmail, 'Name changed', `Your name on X-Pkg has been changed successfully. Your new name is ${newName}. This name will appear to all users on X-Pkg.`);
+    res.sendStatus(204);
+
+  } catch (e) {
+    console.error(e);
+    return res.sendStatus(500);
+  }
 });
 
 route.post('/packages', async (req, res) => {

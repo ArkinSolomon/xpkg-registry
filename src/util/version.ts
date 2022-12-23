@@ -21,6 +21,18 @@
 export type Version = [number, number, number, ('a' | 'b')?, number?];
 
 /**
+ * Convert a version to a string.
+ * 
+ * @param {Version} version The version to convert to a string.
+ */
+export function versionStr(version: Version) {
+  let finalStr = version.slice(0, 3).join('.');
+  if (version[3])
+    finalStr += version.slice(3, 5).join('');
+  return finalStr;
+}
+
+/**
  * Check if a version string is valid.
  * 
  * @param {string} version The version string to check for validity.

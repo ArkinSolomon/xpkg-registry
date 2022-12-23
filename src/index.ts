@@ -12,25 +12,6 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
-
-/**
- * The data returned from the SQL server.
- * 
- * @typedef {object} DatabaseRecord
- * @property {string} packageId The id of the package.
- * @property {string} packageName The name of the package.
- * @property {string} authorName The name of the author that published this package.
- * @property {string} description The description of the package.
- * @property {string[]?} versions All of the versions of the package.
- */
-type DatabaseRecord = {
-  packageId: string,
-  packageName: string,
-  authorName: string,
-  description: string,
-  versions?: string[]
-};
-
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -53,6 +34,13 @@ const storeFile = path.resolve('./data.json');
 import packages from './routes/packages.js';
 import auth, { AuthTokenPayload } from './routes/auth.js';
 import account from './routes/account.js';
+// import packageDatabase from './Database/mysqlPackageDB.js'; 
+
+import PackageDatabase, { PackageData } from './Database/packageDatabase.js';
+import AuthorDatabase from './Database/authorDatabase.js';
+
+const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
+const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
 
 // Update this with all routes that require tokens
 const authRoutes = ['/packages/upload', '/packages/new', '/account'];
@@ -74,22 +62,11 @@ app.use(authRoutes, async (req, res, next) => {
 
     const payload = await jwtPromise.decode(token, process.env.AUTH_SECRET as string) as AuthTokenPayload;
     const { id, session } = payload;
-
-    let expectedSession: string;
-    if (Object.hasOwnProperty.call(authSessionCache, id))
-      expectedSession = authSessionCache[id];
-    else {
-      const sessionLookupQuery = mysql.format('SELECT session FROM authors WHERE authorId=?;', [id]);
-      expectedSession = await new Promise<string>((resolve, reject) =>
-        query(sessionLookupQuery, (err, r: { session: string }[]) => {
-          if (err || r.length !== 1)
-            return reject(err);
-          resolve(r[0].session);
-        })
-      );
-    }
-
-    if (session.toLowerCase() !== expectedSession.toLowerCase())
+  
+    const expectedSession = Object.hasOwnProperty.call(authSessionCache, id) ?
+      authSessionCache[id] : await authorDatabase.getSession(id);
+    
+    if (session !== expectedSession)
       throw null;
 
     authSessionCache[id] = expectedSession;
@@ -108,44 +85,27 @@ app.use('/account', account);
 
 /**
  * Update the JSON file which is storing all of the data.
+ * 
+ * @async
+ * @returns {Promise<void>} A promise which resolves when the operation completes.
  */
 async function updateData(): Promise<void> {
-  const data: DatabaseRecord[] = [];
+  const data: (PackageData & { versions: string[]; })[] = [];
 
-  const packageData = await new Promise<DatabaseRecord[]>((resolve, reject) => {
-    query('SELECT packageId, packageName, authorName, description FROM packages;', (err, data: DatabaseRecord[]) => {
-      if (err)
-        return reject(err);
-      resolve(data);
-    });
-  });
+  const allPackageData = await packageDatabase.getPackageData();
+  for (const pkg of allPackageData) {
+    const newData = {
+      ...pkg,
+      versions: [] as string[]
+    };
 
-  for (const d of packageData) {
-    d.versions = await getVersions(d.packageId);
-
-    if (d.versions.length)
-      data.push(d);
+    // Get only the version strings of all of the versions of the package
+    newData.versions = (await packageDatabase.getVersionData(pkg.packageId))
+      .filter(v => v.approved && v.published)
+      .map(v => v.version);
   }
 
-  await fs.writeFile(storeFile, JSON.stringify({ data }), 'utf-8');
-}
-
-/**
- * Get all of the versions that a package has.
- * 
- * @param {string} packageId The id of the package to get the version of.
- * @returns {Promise<string[]>} All of the versions of the pacakge.
- */
-async function getVersions(packageId: string): Promise<string[]> {
-  return new Promise<string[]>((resolve, reject) => {
-    const queryStr = mysql.format('SELECT version FROM versions WHERE packageId = ? AND approved = true AND published = true;', [packageId]);
-    query(queryStr, (err, d: { version: string }[]) => {
-      if (err)
-        return reject(err);
-      const data = d.map(v => v.version);
-      resolve(data);
-    });
-  });
+  return fs.writeFile(storeFile, JSON.stringify({ data }), 'utf-8');
 }
 
 await updateData();

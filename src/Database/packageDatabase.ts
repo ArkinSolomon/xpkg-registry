@@ -14,13 +14,14 @@
  */
 
 import Author from '../author.js';
+import { Version } from '../util/version.js';
 
 /**
  * Enumeration of all possible package types.
  * 
  * @enum {string}
  */
-enum PackageType {
+export enum PackageType {
   Aircraft = 'aircraft',
   Executable = 'executable',
   Scenery = 'scenery',
@@ -90,10 +91,10 @@ interface PackageDatabase {
    * @param {string} packageName The name of the new package.
    * @param {Author} author The author that is creating the package.
    * @param {string} description The description of the new package.
-   * @param {string} packageType The type of the package that is being created.
+   * @param {PackageType} packageType The type of the package that is being created.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    */
-  addPackage(packageId: string, packageName: string, author: Author, description: string, packageType: string): Promise<void>;
+  addPackage(packageId: string, packageName: string, author: Author, description: string, packageType: PackageType): Promise<void>;
 
   /**
    * Create a new version for a package. If both published and private are false, the package is assumed to registered only.
@@ -101,7 +102,7 @@ interface PackageDatabase {
    * @async
    * @name PackageDatabase#insertVersion
    * @param {string} packageId The package identifier of the package that this version is for.
-   * @param {string} version The version string of the version.
+   * @param {Version} version The version string of the version.
    * @param {Author} author The author that created the package.
    * @param {string} hash The hash of the package as a hexadecimal string.
    * @param {string} loc The URL of the package from which to download.
@@ -110,8 +111,9 @@ interface PackageDatabase {
    * @param {boolean} accessConfig.isPrivate True if the package is to be private.
    * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
+   * @throws {InvalidPackageError} Error thrown if the access config is invalid.
    */
-  addPackageVersion(packageId: string, version: string, author: Author, hash: string, loc: string, accessConfig: {
+  addPackageVersion(packageId: string, version: Version, author: Author, hash: string, loc: string, accessConfig: {
     isPublished: boolean;
     isPrivate: boolean;
     privateKey?: string;
@@ -124,7 +126,7 @@ interface PackageDatabase {
    * @name PackageDatabase#getPackageData
    * @param {string} packageId The identifier of the package to get the data for.
    * @returns {Promise<PackageData>} A promise which resolves to the data of the specified package.
-   * @throws {NoSuchPackageError} 
+   * @throws {NoSuchPackageError} Error throws if trying to get data for a non-existent package.
    */
   getPackageData(packageId: string): Promise<PackageData>;
 
@@ -153,10 +155,11 @@ interface PackageDatabase {
    * @async
    * @name PackageDatabase#getVersionData
    * @param {string} packageId The id of the package to get the version data for.
-   * @param {string} version The version string of the package to get the data for.
+   * @param {Version} version The version string of the package to get the data for.
    * @returns {Promise<VersionData>} A promise which resolves to the version data for the specified version of the requested package.
+   * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
    */
-  getVersionData(packageId: string, version: string): Promise<VersionData>;
+  getVersionData(packageId: string, version: Version): Promise<VersionData>;
 
   /**
    * Get the data for all versions of a package.
@@ -165,6 +168,7 @@ interface PackageDatabase {
    * @name PackageDatabase#getVersionData
    * @param {string} packageId The id of the package to get the version data for.
    * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package.
+   * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
    */
   getVersionData(packageId: string): Promise<VersionData[]>;
 
@@ -173,17 +177,29 @@ interface PackageDatabase {
    * 
    * @async
    * @name PackageDatabase#packageIdExists
-   * @param {string} packageId The id to check for existence (must be in lowercase).
+   * @param {string} packageId The id to check for existence.
    * @returns {Promise<boolean>} A promise which resolves to true if the package id is already in use.
    */
   packageIdExists(packageId: string): Promise<boolean>;
+
+  /**
+   * Check if the given package has the given version.
+   * 
+   * @async
+   * @name PackageDatabase#versionExists
+   * @param {string} packageId The package id to check for version existence.
+   * @param {Version} version The version to check for existence.
+   * @returns {Promise<boolean>} A promise which resolves to true if the package already has the version.
+   * @throws {NoSuchPackageError} Error thrown if the package does not exist.
+   */
+  versionExists(packageId: string, version: Version): Promise<boolean>;
 
   /**
    * Check if a package exists with a given name.
    * 
    * @async
    * @name PackageDatabase#packageNameExists
-   * @param {string} packageName The package name to check. Case doesn't matter.
+   * @param {string} packageName The package name to check for
    * @returns {Promise<boolean>} A promise which resolves to true if the name is already in use.
    */
   packageNameExists(packageName: string): Promise<boolean>;

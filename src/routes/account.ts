@@ -15,10 +15,9 @@
 
 import { Router } from 'express';
 import { validateName } from '../util/validators.js';
-import PackageDatabase, { PackageData, VersionData } from '../database/packageDatabase.js';
+import { PackageData, VersionData } from '../database/packageDatabase.js';
 import Author from '../author.js';
-
-const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
+import packageDatabase from '../database/mysqlPackageDB.js';
 
 const route = Router();
 

@@ -25,11 +25,9 @@ import crypto from 'crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import Author from '../author.js';
 import * as validators from '../util/validators.js';
-import isVersionValid, { versionStr } from '../util/version.js';
+import isVersionValid from '../util/version.js';
 import fileProcessor from '../util/fileProcessor.js';
-import PackageDatabase from '../database/packageDatabase.js';
-
-const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
+import packageDatabase from '../database/mysqlPackageDB.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -46,10 +44,14 @@ route.get('/', (_, res) => {
 });
 
 route.get('/:packageId/:version', async (req, res) => {
-  const { packageId, version } = req.params as {
+  const { packageId, version: versionString } = req.params as {
     packageId: string; 
     version: string;
   };
+
+  const version = isVersionValid(versionString);
+  if (!version)
+    return res.sendStatus(400);
 
   const versionData = await packageDatabase.getVersionData(packageId, version);
 
@@ -215,7 +217,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
 
     await Promise.all([
       packageDatabase.addPackage(packageId, packageName, author, description, packageType),
-      packageDatabase.addPackageVersion(packageId, versionStr(version), author, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
+      packageDatabase.addPackageVersion(packageId, version, author, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
         isPublished: publishedPackage,
         isPrivate: privatePackage
       })

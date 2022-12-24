@@ -23,7 +23,20 @@ export default class NoSuchAccountError extends Error {
    * 
    * @param {string} packageId The id of the package that does not exist.
    */
-  constructor(packageId) {
-    super(`Package does not exist with the id: ${packageId}`);
+  constructor(packageId: string);
+
+  /**
+   * Create a new error saying a pacakage does not exist with the provided package id and version.
+   * 
+   * @param {string} packageId The id of the package that does not exist.
+   * @param {string} version The version of the package that does not exist
+   */
+  constructor(packageId: string, version: string);
+
+  constructor(packageId: string, version?: string) {
+    if (version)
+      super(`Package does not exist: ${packageId}@${version}`);
+    else
+      super(`Package does not exist: ${packageId}`);
   }
 }

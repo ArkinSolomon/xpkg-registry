@@ -12,12 +12,47 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
-import AuthorDatabase, { AuthorData } from './Database/authorDatabase.js';
-
-const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
 
 /**
- * This class defines a user, which is passed as {@code req.user} in authorized routes.
+ * The payload of the JWT tokens used for authorization.
+ * 
+ * @typedef {Object} AuthTokenPayload
+ * @property {string} id The id of the author.
+ * @property {string} name The name of the author.
+ * @property {string} session The current session of the user to be invalidated on password change.
+ */
+export type AuthTokenPayload = {
+  id: string;
+  name: string;
+  session: string;
+}
+
+/**
+ * The payload of the JWT tokens used for account validation.
+ * 
+ * @typedef {Object} AccountValidationPayload
+ * @property {string} id The id of the author that is verifying their account.
+ */
+export type AccountValidationPayload = {
+  id: string;
+}
+
+import AuthorDatabase, { AuthorData } from './database/authorDatabase.js';
+import PackageDatabase, { PackageData } from './database/packageDatabase.js';
+import email from './util/email.js';
+import { nanoid } from 'nanoid/async';
+import * as jwtPromise from './util/jwtPromise.js';
+import bcrypt from 'bcrypt';
+import NoSuchAccountError from './errors/noSuchAccountError.js';
+
+const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
+const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
+
+// When the auth token should expire ()
+const expiresIn = 2.592e9;
+
+/**
+ * This class defines a user, which is passed as req.user in authorized routes.
  */
 export default class Author {
 
@@ -46,7 +81,7 @@ export default class Author {
   }
 
   /**
-   * Get the name to check for of an author, {@code name} in lowercase.
+   * Get the name to check for of an author, name in lowercase.
    * 
    * @return {string} The name of the user to check for duplication.
    */
@@ -95,11 +130,144 @@ export default class Author {
   }
 
   /**
+   * Create a new author and store it in the databse, and get the new {@link Author} object. Assumes that all checks have been passed (i.e. that the author does not already exist).
+   * 
+   * @async
+   * @param {string} name The name of the new author (with casing).
+   * @param {stirng} email The email of the new author (should be lowercase).
+   * @param {string} passwordHash The hash of the user's password.
+   * @returns {Promise<Author>} A promise which resolves to the {@link Author} object when the author is created successfully. 
+   */
+  static async create(name: string, email: string, passwordHash: string): Promise<Author> {
+    const id = await nanoid();
+    await authorDatabase.createAuthor(id, name, email, passwordHash);
+    const author = new Author({
+      authorId: id,
+      authorName: name,
+      authorEmail: email,
+      verified: false
+    });
+    return author;
+  }
+
+  /**
+   * Retrieve an author from the database using their id and create a new {@link Author} class with it.
+   * 
+   * @async
+   * @param {string} authorId The id of the author to retrieve.
+   * @returns {Promise<Author>} A promise which resolves to the author represented by the {@link Author} class.
+   */
+  static async fromDatabase(authorId: string): Promise<Author> {
+    const authorData = await authorDatabase.getAuthor(authorId);
+    return new Author(authorData);
+  }
+
+  /**
+   * Have a user login with their email and password, and get the author from it.
+   * 
+   * @async
+   * @param {string} authorEmail The email of the author who is trying to login (in lowercase).
+   * @param {string} authorPassword The password of the author who is trying to login (not hashed).
+   * @returns {Promise<Author>} A promise which resolves to the author if the email matches the password, or rejects if the login parameters were invalid.
+   */
+  static async login(authorEmail: string, authorPassword: string): Promise<Author> {
+    const [expectedHash, id] = await authorDatabase.getPasswordAndId(authorEmail);
+    const isValid = await bcrypt.compare(authorPassword, expectedHash);
+
+    if (!isValid)
+
+      // We're sending 401 either way so just throw this to differentiate between 401s and 500s
+      throw new NoSuchAccountError('password', '*****');
+
+    return Author.fromDatabase(id);
+  }
+
+  /**
+   * Create an authorization token.
+   * 
+   * @async
+   * @returns {Promise<string>} A promise which resolves to the authorization token.
+   */
+  async createAuthToken(): Promise<string> {
+    return jwtPromise.sign(<AuthTokenPayload>{
+      id: this._id,
+      name: this._name,
+      session: await this.getSession(),
+    }, process.env.AUTH_SECRET as string, { expiresIn });
+  }
+
+  /**
+   * Create a token that a user/author can use to verify their account.
+   * 
+   * @async
+   * @returns {Promise<string>} A promise which resolves to a token which expires in 24 hours which the user can use to verify their account.
+   */
+  async createVerifyToken(): Promise<string> {
+    return jwtPromise.sign(<AccountValidationPayload>{
+      id: this._id
+    },
+      process.env.EMAIL_VERIFY_SECRET as string,
+      { expiresIn: '24h' }
+    );
+  }
+
+  /**
    * Get the session of the user. 
    * 
+   * @async
    * @returns {Promise<string>} The session of the user.
    */
   async getSession(): Promise<string> {
     return authorDatabase.getSession(this._id);
+  }
+
+  /**
+   * Get the packages of the author.
+   * 
+   * @async
+   * @returns {Promise<PackageData>} A promise which resolves to the data of all packages created by this author.
+   */
+  async getPackages(): Promise<PackageData[]> {
+    return packageDatabase.getAuthorPackages(this._id);
+  }
+
+  /**
+   * Change the name of the author, and invalidate the session.
+   * 
+   * @async
+   * @param newName The new name of the author.
+   * @returns {Promise<void>} A promise which resolves when the operation completes successfully.
+   */
+  async changeName(newName: string): Promise<void> {
+
+    // We await this promise instead of returning to hide the return values.
+    await Promise.all([
+      authorDatabase.updateAuthorName(this._id, newName),
+      packageDatabase.updateAuthorName(this._id, newName),
+      this._invalidateSession()
+    ]);
+  }
+
+  /**
+   * Send an email to the author.
+   * 
+   * @async
+   * @param {string} subject The subject of the email.
+   * @param {string} content The content of the email.
+   * @returns {Promise<void>} A promise which resolves when the email has been sent.
+   */
+  async sendEmail(subject: string, content: string): Promise<void> {
+    return email(this._email, subject, content);
+  }
+
+  /**
+   * Invalidate the author's current session after making a change.
+   * 
+   * @async
+   * @returns {Promise<void>} A promise which resolves when the session has been updated.
+   */
+  private async _invalidateSession(): Promise<void> {
+    const newSession = await nanoid();
+    authorDatabase.updateAuthorSession(this._id, newSession);
   }
 }

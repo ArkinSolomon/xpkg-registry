@@ -15,7 +15,7 @@
 import fs from 'fs/promises';
 import { unlinkSync, lstatSync, Stats, createWriteStream } from 'fs';
 import path from 'path';
-import XPkgInvalidPackageError from './xPkgInvalidPackageError.js';
+import XPkgInvalidPackageError from '../errors/invalidPackageError.js';
 import Mode from 'stat-mode';
 import archiver from 'archiver';
 import { Version } from './version.js';

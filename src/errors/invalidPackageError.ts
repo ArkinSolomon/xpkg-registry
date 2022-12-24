@@ -12,14 +12,18 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
-export default class XPkgInvalidPackageError extends Error {
+
+/**
+ * A class to throw errors that are meant to be sent back to the user as a result of a package being invalid during upload.
+ */
+export default class InvalidPackageError extends Error {
 
   private _shortMessage: string;
 
   /**
    * Get the short message to be sent to the user.
    * 
-   * @type {string}
+   * @returns {string} The short message provided at construction
    */
   public get shortMessage(): string {
     return this._shortMessage;
@@ -32,7 +36,6 @@ export default class XPkgInvalidPackageError extends Error {
    */
   constructor(shortMessage: string) {
     super('Invalid package provided: ' + shortMessage);
-
     this._shortMessage = shortMessage;
   }
 }

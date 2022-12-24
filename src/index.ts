@@ -15,11 +15,9 @@
 import dotenv from 'dotenv';
 dotenv.config();
 
-import mysql from 'mysql2';
 import Express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
-import query from './util/database.js';
 import * as jwtPromise from './util/jwtPromise.js';
 import bodyParser from 'body-parser';
 import cors from 'cors';
@@ -32,13 +30,13 @@ app.use(cors());
 const storeFile = path.resolve('./data.json');
 
 import packages from './routes/packages.js';
-import auth, { AuthTokenPayload } from './routes/auth.js';
+import auth from './routes/auth.js';
 import account from './routes/account.js';
 // import packageDatabase from './Database/mysqlPackageDB.js'; 
 
-import PackageDatabase, { PackageData } from './Database/packageDatabase.js';
-import AuthorDatabase from './Database/authorDatabase.js';
-import Author from './author.js';
+import PackageDatabase, { PackageData } from './database/packageDatabase.js';
+import AuthorDatabase from './database/authorDatabase.js';
+import Author, { AuthTokenPayload } from './author.js';
 
 const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
 const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
@@ -47,7 +45,7 @@ const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
 const authRoutes = [
   '/packages/upload',
   '/packages/new',
-  '/account'
+  '/account/*'
 ];
 
 // A cache indexed by author id
@@ -82,7 +80,7 @@ app.use(authRoutes, async (req, res, next) => {
     }
     
     const author = Object.hasOwnProperty.call(authorCache, id) ?
-      authorCache[id] : new Author(await authorDatabase.getAuthor(id));
+      authorCache[id] : await Author.fromDatabase(id);
 
     // Update the cache
     authSessionCache[id] = expectedSession;

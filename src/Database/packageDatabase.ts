@@ -13,6 +13,8 @@
  * either express or implied limitations under the License.
  */
 
+import Author from '../author.js';
+
 /**
  * Enumeration of all possible package types.
  * 
@@ -69,6 +71,7 @@ export type VersionData = {
   published: boolean;
   private: boolean;
   loc: string;
+  privateKey: string;
 };
 
 /**
@@ -79,33 +82,40 @@ export type VersionData = {
 interface PackageDatabase {
 
   /**
-   * Insert a new package into the database.
+   * Add a new package to the database.
    * 
    * @async 
    * @name PackageDatabase#insertPackage
    * @param {string} packageId The package identifier of the new package.
    * @param {string} packageName The name of the new package.
-   * @param {string} authorId The id of the author that is creating the package.
+   * @param {Author} author The author that is creating the package.
    * @param {string} description The description of the new package.
    * @param {string} packageType The type of the package that is being created.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    */
-  addPackage(packageId: string, packageName: string, authorId: string, authorName: string, description: string, packageType: string): Promise<void>;
+  addPackage(packageId: string, packageName: string, author: Author, description: string, packageType: string): Promise<void>;
 
   /**
-   * Create a new version for a package.
+   * Create a new version for a package. If both published and private are false, the package is assumed to registered only.
    * 
    * @async
    * @name PackageDatabase#insertVersion
    * @param {string} packageId The package identifier of the package that this version is for.
-   * @param {string} version The version string of the package.
+   * @param {string} version The version string of the version.
+   * @param {Author} author The author that created the package.
    * @param {string} hash The hash of the package as a hexadecimal string.
-   * @param {boolean} published True if the package is being uploaded.
    * @param {string} loc The URL of the package from which to download.
-   * @param {string} authorId The id of the author of the package.
+   * @param {Object} accessConfig The access config of the object.
+   * @param {boolean} accessConfig.isPublished True if the package is to be published.
+   * @param {boolean} accessConfig.isPrivate True if the package is to be private.
+   * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    */
-  addPackageVersion(packageId: string, version: string, hash: string, published: boolean, loc: string, authorId: string): Promise<void>;
+  addPackageVersion(packageId: string, version: string, author: Author, hash: string, loc: string, accessConfig: {
+    isPublished: boolean;
+    isPrivate: boolean;
+    privateKey?: string;
+  }): Promise<void>;
 
   /**
    * Get the package data for a specific package.
@@ -113,7 +123,8 @@ interface PackageDatabase {
    * @async 
    * @name PackageDatabase#getPackageData
    * @param {string} packageId The identifier of the package to get the data for.
-   * @returns {Promise<PackageData>} A promise which resolves to the data of the package.
+   * @returns {Promise<PackageData>} A promise which resolves to the data of the specified package.
+   * @throws {NoSuchPackageError} 
    */
   getPackageData(packageId: string): Promise<PackageData>;
 
@@ -122,9 +133,19 @@ interface PackageDatabase {
    * 
    * @async
    * @name PackageDatabase#getPackageData
-   * @returns {Promise<PackageData>}
+   * @returns {Promise<PackageData[]>} The data of all of the packages on the registry. 
    */
   getPackageData(): Promise<PackageData[]>;
+
+  /**
+   * Get all packages by a certain author
+   * 
+   * @async
+   * @name PackageDatabase#getAuthorPackages
+   * @param {string} authorId The id of the author to get the data of.
+   * @returns {Promise<PackageData[]>} A promise which resolves to the data of all packages created by the provided author.
+   */
+  getAuthorPackages(authorId: string): Promise<PackageData[]>;
 
   /**
    * Get the data for a specific package.
@@ -147,9 +168,35 @@ interface PackageDatabase {
    */
   getVersionData(packageId: string): Promise<VersionData[]>;
 
+  /**
+   * Check if a package exists with a given id.
+   * 
+   * @async
+   * @name PackageDatabase#packageIdExists
+   * @param {string} packageId The id to check for existence (must be in lowercase).
+   * @returns {Promise<boolean>} A promise which resolves to true if the package id is already in use.
+   */
   packageIdExists(packageId: string): Promise<boolean>;
+
+  /**
+   * Check if a package exists with a given name.
+   * 
+   * @async
+   * @name PackageDatabase#packageNameExists
+   * @param {string} packageName The package name to check. Case doesn't matter.
+   * @returns {Promise<boolean>} A promise which resolves to true if the name is already in use.
+   */
   packageNameExists(packageName: string): Promise<boolean>;
 
+  /**
+   * Update any packages that was made by the author with the id and change the name.
+   * 
+   * @async
+   * @name PackageDatabase#updateAuthorName
+   * @param authorId The id of the author to change the name of.
+   * @param newName The new name of the author.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   */
   updateAuthorName(authorId: string, newName: string): Promise<void>;
 }
 

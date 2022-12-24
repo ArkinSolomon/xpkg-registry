@@ -13,44 +13,8 @@
  * either express or implied limitations under the License.
  */
 
-/**
- * The data within the xpkg-manifest.json file of a package.
- * 
- * @typedef {object} ManifestData
- * @property {string} [id] The id of the package.
- * @property {string} [version] The version of the package.
- * @property {string} [type] The type of the object.
- */
-type ManifestData = {
-  id?: string;
-  version?: string;
-  type?: string;
-  authorId?: string;
-};
-
-/**
- * The temporary data stored while the user is going through the upload wizard.
- * 
- * @typedef {object} TempData
- * @property {string} id The id of the package.
- * @property {string} authorId The id of the package author.
- * @property {boolean} installFound True if there was an `install.xpkgs` script in the package's root directory.
- * @property {boolean} uninstallFound True if there was an `uninstall.xpkgs` script in the package's root directory.
- * @property {boolean} upgradeFound True if there was an `upgrade.xpkgs` script in the package's root directory.
- */
-type TempData = {
-  id: string;
-  authorId: string;
-  installFound: boolean;
-  uninstallFound: boolean;
-  upgradeFound: boolean;
-};
-
-import archiver from 'archiver';
 import path from 'path';
-import query from '../util/database.js';
 import { Router } from 'express';
-import mysql from 'mysql2';
 import multer from 'multer';
 import os from 'os';
 import fs from 'fs';
@@ -58,20 +22,18 @@ import fsProm from 'fs/promises';
 import { nanoid } from 'nanoid/async';
 import unzip from 'unzipper';
 import crypto from 'crypto';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
-import { AuthTokenPayload } from './auth.js';
-import isProfane from '../util/profanityFilter.js';
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
+import Author from '../author.js';
+import * as validators from '../util/validators.js';
 import isVersionValid, { versionStr } from '../util/version.js';
 import fileProcessor from '../util/fileProcessor.js';
+import PackageDatabase from '../database/packageDatabase.js';
+
+const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
 const upload = multer({ dest: os.tmpdir() });
-
-const defaultInstallScript = path.resolve('.', 'resources', 'default_scripts', 'install.xpkgs');
-const defaultUninstallScript = path.resolve('.', 'resources', 'default_scripts', 'uninstall.xpkgs');
-const defaultUpgradeScript = path.resolve('.', 'resources', 'default_scripts', 'upgrade.xpkgs');
 
 const bucketName = 'xpkgregistrydev';
 
@@ -79,48 +41,39 @@ const s3client = new S3Client({
   region: 'us-east-2'
 });
 
-// Get a list of all packages
 route.get('/', (_, res) => {
   res.sendFile(storeFile);
 });
 
-// Get the hash and location of a package
-route.get('/:package/:version', (req, res) => {
-  const { package: packageId, version: versionStr } = req.params;
-  const queryStr = mysql.format('SELECT loc, published, approved, HEX(hash) FROM versions WHERE packageId = ? AND version = ?;', [packageId, versionStr]);
+route.get('/:packageId/:version', async (req, res) => {
+  const { packageId, version } = req.params as {
+    packageId: string; 
+    version: string;
+  };
 
-  query(queryStr, (err, data: { loc: string, 'HEX(hash)': string, published: boolean, approved: boolean }[]) => {
-    if (err) {
-      console.error(err);
-      return res.sendStatus(500);
-    }
+  const versionData = await packageDatabase.getVersionData(packageId, version);
 
-    if (data.length < 1)
-      return res.sendStatus(404);
-    else if (data.length > 1)
-      return res.sendStatus(400);
+  if (!versionData.approved || !versionData.published)
+    return res.sendStatus(404);
 
-    const [version] = data;
-
-    let { loc } = version;
-    const { published, approved } = version;
-    if (!approved)
-      res.sendStatus(404);
-    else if (!published)
-      loc = 'NOT_PUBLISHED';
-
-    res.json({ loc, hash: version['HEX(hash)'] });
-  });
+  res
+    .status(200)
+    .json({
+      loc: versionData.loc,
+      hash: versionData.hash
+    });
 });
 
 route.post('/new', upload.single('file'), async (req, res) => {
   const file = req.file;
+  const author = req.user as Author;
 
-  let packageId, packageName, checkPackageName, packageType, description, initialVersion;
+  let packageId, packageName, packageType, description, initialVersion;
+  const publishedPackage = req.body.published;
+  const privatePackage = req.body.private;
   try {
     packageId = req.body.packageId.trim().toLowerCase();
     packageName = req.body.packageName.trim();
-    checkPackageName = packageName.toLowerCase();
 
     // TODO make this an enum
     packageType = req.body.packageType.trim().toLowerCase();
@@ -133,6 +86,8 @@ route.post('/new', upload.single('file'), async (req, res) => {
     checkType(packageType, 'string');
     checkType(description, 'string');
     checkType(initialVersion, 'string');
+    checkType(publishedPackage, 'boolean');
+    checkType(privatePackage, 'boolean');
   } catch (e) {
     console.error(e);
     return res
@@ -191,34 +146,30 @@ route.post('/new', upload.single('file'), async (req, res) => {
       .status(400)
       .send('invalid_verison');
 
-  if (isProfane(packageId))
+  if (validators.isProfane(packageId))
     return res
       .status(400)
       .send('profane_id');
-  else if (isProfane(packageName))
+  else if (validators.isProfane(packageName))
     return res
       .status(400)
       .send('profane_name');
-  else if (isProfane(description))
+  else if (validators.isProfane(description))
     return res
       .status(400)
       .send('profane_desc');
 
-  const { id: authorId, name: authorName } = req.user as AuthTokenPayload;
-
   try {
-    const idLookupQuery = mysql.format('SELECT packageId FROM packages WHERE packageId = ?;', [packageId]);
-    const nameLookupQuery = mysql.format('SELECT packageId FROM packages WHERE checkPackageName = ?;', [checkPackageName]);
-    const lookupRes = await Promise.all([
-      query(idLookupQuery),
-      query(nameLookupQuery)
+    const [packageIdExists, packageNameExists] = await Promise.all([
+      packageDatabase.packageIdExists(packageId),
+      packageDatabase.packageNameExists(packageName)
     ]);
 
-    if (lookupRes[0].length)
+    if (packageIdExists)
       return res
         .status(400)
         .send('id_in_use');
-    else if (lookupRes[1].length)
+    else if (packageNameExists)
       return res
         .status(400)
         .send('name_in_use');
@@ -240,7 +191,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
       .createReadStream(file.path)
       .pipe(unzip.Extract({ path: destFile }))
       .promise();
-    await fileProcessor(destFile, outFile, authorId, packageName, packageId, version, packageType);
+    await fileProcessor(destFile, outFile, author.id, packageName, packageId, version, packageType);
   } catch (e) {
     console.error(e);
     return res
@@ -262,10 +213,15 @@ route.post('/new', upload.single('file'), async (req, res) => {
     });
     await s3client.send(putCmd);
 
-    const packageCommand = mysql.format('INSERT INTO packages (packageId, packageName, authorId, authorName, description, packageType, checkPackageName) VALUES (?, ?, ?, ?, ?, ?, ?);',
-      /*       Get around eslint + auto formatting lol      */[packageId, packageName, authorId, authorName, description, packageType, checkPackageName]);
-    const versionCommand = mysql.format('INSERT INTO versions (packageId, version, hash, published, approved, loc, authorId) VALUES (?, ?, UNHEX(?), True, True, ?, ?);', [packageId, versionStr(version), hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, authorId]);
-    await Promise.all([query(packageCommand), query(versionCommand)]);
+    await Promise.all([
+      packageDatabase.addPackage(packageId, packageName, author, description, packageType),
+      packageDatabase.addPackageVersion(packageId, versionStr(version), author, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
+        isPublished: publishedPackage,
+        isPrivate: privatePackage
+      })
+    ]);
+
+    author.sendEmail('Package uploaded!', 'Idk i haven\'t written this yet BUT you uploaded a package lol so');
 
     return res.sendStatus(204);
   } catch (e) {

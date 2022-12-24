@@ -15,13 +15,31 @@
 import jwt from 'jsonwebtoken';
 
 /**
- * Decode a Json Web Token asynchronously using promises.
+ * Create a signed JSON Web Token asynchronously using promises.
  * 
- * @param token The token to decode.
- * @param secret The secret used to sign the token.
- * @returns The payload of the token.
+ * @async
+ * @param {Record<string, unknown>} payload The token payload.
+ * @param {jwt.Secret} secret The token secret.
+ * @param {jwt.SignOptions} config The options for signing the token.
+ * @returns {Promise<string>} A promise which resolves to the signed token.
  */
-export function decode(token: string, secret: string) {
+export function sign(payload: Record<string, unknown>, secret: jwt.Secret, config: jwt.SignOptions): Promise<string> {
+  return new Promise((resolve, reject) => jwt.sign(payload, secret, config, (err, token) => {
+    if (err)
+      return reject(err);
+    resolve(token as string);
+  }));
+}
+
+/**
+ * Decode a JSON Web Token asynchronously using promises.
+ * 
+ * @async
+ * @param {string} token The token to decode.
+ * @param {jwt.Secret} secret The secret used to sign the token.
+ * @returns {Promise<unknown>} A promise which resolves to the payload of the token.
+ */
+export function decode(token: string, secret: jwt.Secret): Promise<unknown> {
   return new Promise((resolve, reject) => jwt.verify(token, secret, (err, payload) => {
     if (err)
       return reject(err);

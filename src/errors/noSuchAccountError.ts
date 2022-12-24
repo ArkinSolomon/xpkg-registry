@@ -12,26 +12,19 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
-import fs from 'fs';
-import path from 'path';
-
-const words = fs
-  .readFileSync(path.resolve('.', 'resources', 'profanity_list.txt'), 'utf-8')
-  .split(/\n/g);
 
 /**
- * Determine if a text has profanity.
- * 
- * @param {string} text The text to determine.
- * @return {boolean} True if the text is considered vulgar.
+ * An error which is thrown by the account database when such a user does not exist.
  */
-export default function isProfane(text: string): boolean {
-  const parts = text.split(/[\s._]/);
-  
-  for (const part of parts) {
-    if (words.includes(part.toLowerCase()))
-      return true;
-  }
+export default class NoSuchAccountError extends Error {
 
-  return false;
+  /**
+   * Create a new error saying the account does not exist with the provided details.
+   * 
+   * @param {string} key The lookup key.
+   * @param {string} value The value of the key.
+   */
+  constructor(key: string, value: string) {
+    super(`Account does not exist with the parameters: ${key}=${value}`);
+  }
 }

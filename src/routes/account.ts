@@ -13,76 +13,34 @@
  * either express or implied limitations under the License.
  */
 
-/**
- * The data given from the server for a package version.
- * 
- * @typedef {Object} VersionData
- * @property {string} version The version string.
- * @property {string} hash The hash of the data in the package.
- * @property {boolean} approved True if the package is approved.
- * @property {boolean} published True if the package is published.
- * @property {string} loc The URL from which to download the package.
- */
-type VersionData = {
-  version: string;
-  hash: string;
-  approved: boolean;
-  publishd: boolean;
-  loc: string;
-};
-
-/**
- * The data given from the server for a single package.
- * 
- * @typedef {Object} PackageData
- * @property {string} packageId The id of the package.
- * @property {string} packageName The name of the package.
- * @property {string} packageDescription The description of the package.
- * @property {number} installs The number of installations the package has.
- * @property {string} packageType The type of the package.
- * @property {VersionData[]} versions The versions of the package.
- */
-type PackageData = {
-  packageId: string;
-  packageName: string;
-  packageDescription: string;
-  installs: number;
-  packageType: string;
-  versions: VersionData[];
-};
-
 import { Router } from 'express';
-import { AuthTokenPayload, validateName } from './auth.js';
-import mysql from 'mysql2';
-import query from '../util/database.js';
-import { nanoid } from 'nanoid/async';
-import email from '../util/email.js';
-import PackageDatabase from '../Database/packageDatabase.js';
-import AuthorDatabase from '../Database/authorDatabase.js';
+import { validateName } from '../util/validators.js';
+import PackageDatabase, { PackageData, VersionData } from '../database/packageDatabase.js';
+import Author from '../author.js';
 
 const packageDatabase: PackageDatabase = null as unknown as PackageDatabase;
-const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
 
 const route = Router();
 
+// TODO get rid of this route and have the client parse this data directly from their token
 route.post('/data', (req, res) => {
-  const user = req.user as AuthTokenPayload;
-  return res.json({ id: user.id, name: user.name });
+  const author = req.user as Author;
+  return res.json({ id: author.id, name: author.name });
 });
 
 route.post('/changename', async (req, res) => {
-  const user = req.user as AuthTokenPayload;
+  const author = req.user as Author;
   let { newName } = req.body as { newName: string; };
 
   try {
     newName = newName.trim();
 
     const checkName = newName.toLowerCase();
-    if (user.name.trim().toLowerCase() === checkName ||
+    if (author.checkName === checkName ||
       !validateName(checkName))
       return res.sendStatus(400);
 
-    const lastChangeDate = await authorDatabase.getLastNameChange(user.id);
+    const lastChangeDate = author.lastChangeDate;
 
     // Allow name change if it's been more than 10 days (see https://bobbyhadz.com/blog/javascript-check-if-date-within-30-days)
     // or if there is no date stored (the account has just been created)
@@ -90,18 +48,9 @@ route.post('/changename', async (req, res) => {
     if (lastChangeDate || daysSinceChange < 30)
       return res.sendStatus(406);
 
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    const [authorEmail, ..._] = await Promise.all([
-      authorDatabase.getEmail(user.id),
-      authorDatabase.updateAuthorName(user.id, newName),
-      packageDatabase.updateAuthorName(user.id, newName)
-    ]);
-
-    //TODO? invalidate session
-
-    email(authorEmail, 'Name changed', `Your name on X-Pkg has been changed successfully. Your new name is ${newName}. This name will appear to all users on X-Pkg.`);
+    await author.changeName(newName);
+    author.sendEmail('Name changed', `Your name on X-Pkg has been changed successfully. Your new name is ${newName}. This name will appear to all users on X-Pkg.`);
     res.sendStatus(204);
-
   } catch (e) {
     console.error(e);
     return res.sendStatus(500);
@@ -109,32 +58,24 @@ route.post('/changename', async (req, res) => {
 });
 
 route.post('/packages', async (req, res) => {
-  const { id } = req.user as AuthTokenPayload;
-  if (!id)
-    return res.sendStatus(401);
-
-  const packagesQuery = mysql.format('SELECT packageId, packageName, description, packageType, installs FROM packages WHERE authorId = ?;', id);
-  const versionsQuery = mysql.format('SELECT packageId, version, HEX(hash), approved, published, loc FROM versions WHERE authorId = ?;', id);
+  const author = req.user as Author;
+  const data: (PackageData & { versions: Omit<VersionData, 'hash'>[]; })[] = [];
+  
   try {
-    const data: PackageData[] = [];
-    const packages: Omit<PackageData, 'versions'>[] = await query(packagesQuery);
-    const versions: (VersionData & { packageId?: string; })[] = await query(versionsQuery);
-
+    const packages = await author.getPackages();
     for (const pkg of packages) {
-      const pkgData: PackageData = {
+      const d = {
         ...pkg,
-        versions: []
+        versions: [] as Omit<VersionData, 'hash'>[]
       };
 
-      let v = versions.findIndex(v => v.packageId === pkg.packageId);
-      while (v > -1) {
-        const version = versions.splice(v, 1)[0];
-        delete version.packageId;
-        pkgData.versions.push(version);
-        v = versions.findIndex(v => v.packageId === pkg.packageId);
-      }
-
-      data.push(pkgData);
+      // Remove the hash from the versions
+      d.versions = (await packageDatabase.getVersionData(pkg.packageId))
+        .map((v: Partial<VersionData>) => {
+          delete v.hash;
+          return v as Omit<VersionData, 'hash'>;
+        });
+      data.push(d);
     }
 
     res.json(data);

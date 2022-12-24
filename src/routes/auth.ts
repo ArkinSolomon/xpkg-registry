@@ -28,11 +28,9 @@ export type PasswordResetPayload = {
 import bcrypt from 'bcrypt';
 import { Router } from 'express';
 import * as validators from '../util/validators.js';
-import AuthorDatabase from '../database/authorDatabase.js';
 import Author from '../author.js';
 import NoSuchAccountError from '../errors/noSuchAccountError.js';
-
-const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
+import authorDatabase from '../database/mysqlAuthorDB.js';
 
 const route = Router();
 

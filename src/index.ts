@@ -35,10 +35,8 @@ import account from './routes/account.js';
 import packageDatabase from './database/mysqlPackageDB.js'; 
 
 import { PackageData } from './database/packageDatabase.js';
-import AuthorDatabase from './database/authorDatabase.js';
+import authorDatabase from './database/mysqlAuthorDB.js';
 import Author, { AuthTokenPayload } from './author.js';
-
-const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
 
 // Update this with all routes that require tokens
 const authRoutes = [

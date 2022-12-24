@@ -41,10 +41,9 @@ route.post('/changename', async (req, res) => {
 
     const lastChangeDate = author.lastChangeDate;
 
-    // Allow name change if it's been more than 10 days (see https://bobbyhadz.com/blog/javascript-check-if-date-within-30-days)
-    // or if there is no date stored (the account has just been created)
-    const daysSinceChange = Math.abs(lastChangeDate.getTime() - 2.592e9) / 8.64e7;
-    if (lastChangeDate || daysSinceChange < 30)
+    // Allow name change if it's been more than 30 days (see https://bobbyhadz.com/blog/javascript-check-if-date-within-30-days)
+    const daysSinceChange = Math.abs(lastChangeDate.getTime() - Date.now()) / 8.64e7;
+    if (daysSinceChange < 30)
       return res.sendStatus(406);
 
     await author.changeName(newName);

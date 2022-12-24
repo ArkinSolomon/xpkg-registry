@@ -37,7 +37,7 @@ export type AccountValidationPayload = {
   id: string;
 }
 
-import AuthorDatabase, { AuthorData } from './database/authorDatabase.js';
+import { AuthorData } from './database/authorDatabase.js';
 import { PackageData } from './database/packageDatabase.js';
 import packageDatabase from './database/mysqlPackageDB.js';
 import email from './util/email.js';
@@ -45,8 +45,7 @@ import { nanoid } from 'nanoid/async';
 import * as jwtPromise from './util/jwtPromise.js';
 import bcrypt from 'bcrypt';
 import NoSuchAccountError from './errors/noSuchAccountError.js';
-
-const authorDatabase: AuthorDatabase = null as unknown as AuthorDatabase;
+import authorDatabase from './database/mysqlAuthorDB.js';
 
 // When the auth token should expire ()
 const expiresIn = 2.592e9;
@@ -139,7 +138,7 @@ export default class Author {
    * @returns {Promise<Author>} A promise which resolves to the {@link Author} object when the author is created successfully. 
    */
   static async create(name: string, email: string, passwordHash: string): Promise<Author> {
-    const id = await nanoid();
+    const id = await nanoid(16);
     await authorDatabase.createAuthor(id, name, email, passwordHash);
     const author = new Author({
       authorId: id,
@@ -267,7 +266,7 @@ export default class Author {
    * @returns {Promise<void>} A promise which resolves when the session has been updated.
    */
   private async _invalidateSession(): Promise<void> {
-    const newSession = await nanoid();
-    authorDatabase.updateAuthorSession(this._id, newSession);
+    const newSession = await nanoid(16);
+    return authorDatabase.updateAuthorSession(this._id, newSession);
   }
 }

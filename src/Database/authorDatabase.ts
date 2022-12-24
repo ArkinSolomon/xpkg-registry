@@ -41,6 +41,8 @@ interface AuthorDatabase {
   /**
    * Create a new author. Also initialize session randomly.
    * 
+   * @async
+   * @name AuthorDatabase#createAuthor
    * @param {string} authorId The id of the author to create.
    * @param {string} authorName The name of the author.
    * @param {string} authorEmail The email of the author (in lowercase).
@@ -56,6 +58,7 @@ interface AuthorDatabase {
    * @name AuthorDatabase#getPassword
    * @param authorEmail The email of the author to get the password hash of.
    * @returns {Promise<[string, string]>} A promise which resolves to the hash of the author's password first, and then the author id.
+   * @throws {NoSuchAccountError} Error thrown if no account exists with the given email.
    */
   getPasswordAndId(authorEmail: string): Promise<[string, string]>;
 
@@ -66,6 +69,7 @@ interface AuthorDatabase {
    * @name AuthorDatabase#getSession
    * @param {string} authorId The id of the author to get the session of.
    * @returns {Promise<string>} A promise which resolves to the session of the author.
+   * @throws {NoSuchAccountError} Error thrown if no account exists with the given id.
    */
   getSession(authorId: string): Promise<string>;
 
@@ -76,9 +80,9 @@ interface AuthorDatabase {
    * @name AuthorDatabase#getAuthor
    * @param authorId The id of the author to get.
    * @returns {Promise<AuthorData>} A promise which resolves to all of the data of an author.
+   * @throws {NoSuchAccountError} Error thrown if no account exists with the given id.
    */
   getAuthor(authorId: string): Promise<AuthorData>;
-
 
   /**
    * Update the database to record a name change.

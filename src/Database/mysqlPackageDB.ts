@@ -165,21 +165,28 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
     if (typeof version !== 'undefined') {
       const versionString = versionStr(version);
-      const query = format('SELECT packageId, version, hash, approved, published, private, loc, privateKey FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
+      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
       const data = await this._query(query);
 
-      if (data.length === 0) 
+      if (data.length === 0)
         throw new NoSuchPackageError(packageId, versionString);
-      
+
+      data[0].hash = data[0]['HEX(hash)'];
+      delete data[0]['HEX(hash)'];
       return data[0] as VersionData;
     } else {
-      const query = format('SELECT packageId, version, hash, approved, published, private, loc, privateKey FROM versions WHERE packageId=?;', [packageId]);
+      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey FROM versions WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
-      
+
       // If the package has been uploaded it *must* have an initial version.
-      if (data.length === 0) 
+      if (data.length === 0)
         throw new NoSuchPackageError(packageId);
-      
+
+      data.forEach((version: VersionData & { 'HEX(hash)': string|undefined }) => {
+        version.hash = version['HEX(hash)'] as string;
+        delete version['HEX(hash)'];
+      });
+
       return data as VersionData[];
     }
   }

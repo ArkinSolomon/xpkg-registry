@@ -16,7 +16,7 @@
 /**
  * An error which is thrown by the account database when such a package does not exist.
  */
-export default class NoSuchAccountError extends Error {
+export default class NoSuchPackageError extends Error {
 
   /**
    * Create a new error saying a pacakage does not exist with the provided package id.

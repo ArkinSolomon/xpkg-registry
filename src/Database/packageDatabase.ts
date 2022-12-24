@@ -19,6 +19,7 @@ import { Version } from '../util/version.js';
 /**
  * Enumeration of all possible package types.
  * 
+ * @name PackageType
  * @enum {string}
  */
 export enum PackageType {
@@ -40,7 +41,6 @@ export enum PackageType {
  * @property {string} authorName The name of the author that uploaded the package.
  * @property {string} description The description of the package.
  * @property {PackageType} packageType The type of the package.
- * @property {number} installs The number of installs of the package.
  */
 export type PackageData = {
   packageId: string;
@@ -49,7 +49,6 @@ export type PackageData = {
   authorName: string;
   description: string;
   packageType: PackageType;
-  installs: number;
 };
 
 /**
@@ -63,6 +62,7 @@ export type PackageData = {
  * @property {boolean} published True if the version has been published.
  * @property {boolean} private True if the version will be published later.
  * @property {string} loc The URL from which to download the package version.
+ * @property {number} installs The number of installs for this version.
  */
 export type VersionData = {
   packageId: string;
@@ -73,6 +73,7 @@ export type VersionData = {
   private: boolean;
   loc: string;
   privateKey: string;
+  installs: string;
 };
 
 /**

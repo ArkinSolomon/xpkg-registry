@@ -112,7 +112,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
   async getPackageData(packageId?: string): Promise<PackageData | PackageData[]> {
     if (typeof packageId !== 'undefined') {
       packageId = packageId.trim().toLowerCase();
-      const query = format('SELECT packageId, packageName, authorId, authorName, description, packageType, installs FROM packages WHERE packageId=?;', [packageId]);
+      const query = format('SELECT packageId, packageName, authorId, authorName, description, packageType FROM packages WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
 
       if (data.length != 1)
@@ -120,7 +120,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
       return data[0] as PackageData;
     } else {
-      const query = format('SELECT packageId, packageName, authorId, authorName, description, packageType, installs FROM packages;');
+      const query = format('SELECT packageId, packageName, authorId, authorName, description, packageType FROM packages;');
       return this._query(query) as Promise<PackageData[]>;
     }
   }
@@ -134,7 +134,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    */
   async getAuthorPackages(authorId: string): Promise<PackageData[]> {
     authorId = authorId.trim().toLowerCase();
-    const query = format('SELECT packageId, packageName, authorId, authorName, description, packageType, installs FROM packages WHERE authorId=?;', [authorId]);
+    const query = format('SELECT packageId, packageName, authorId, authorName, description, packageType FROM packages WHERE authorId=?;', [authorId]);
     const data = await this._query(query);
     return data as PackageData[];
   }
@@ -165,7 +165,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
     if (typeof version !== 'undefined') {
       const versionString = versionStr(version);
-      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
+      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey, installs FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
       const data = await this._query(query);
 
       if (data.length === 0)
@@ -175,7 +175,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
       delete data[0]['HEX(hash)'];
       return data[0] as VersionData;
     } else {
-      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey FROM versions WHERE packageId=?;', [packageId]);
+      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey, installs FROM versions WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
 
       // If the package has been uploaded it *must* have an initial version.

@@ -45,7 +45,7 @@ route.get('/', (_, res) => {
 
 route.get('/:packageId/:version', async (req, res) => {
   const { packageId, version: versionString } = req.params as {
-    packageId: string; 
+    packageId: string;
     version: string;
   };
 
@@ -229,6 +229,59 @@ route.post('/new', upload.single('file'), async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.sendStatus(500);
+  }
+});
+
+route.post('/description', async (req, res) => {
+  const author = req.user as Author;
+
+  if (!req.body.newDescription)
+    return res
+      .status(400)
+      .send('no_desc');
+
+  if (!req.body.packageId)
+    return res
+      .status(400)
+      .send('no_id');
+
+  let packageId, newDescription;
+  try {
+    checkType(req.body.packageId, 'string');
+    checkType(req.body.newDescription, 'string');
+
+    packageId = req.body.packageId.trim().toLowerCase();
+    newDescription = req.body.newDescription.trim();
+  } catch (e) {
+    return res
+      .status(400)
+      .send('invalid_type');
+  }
+
+  if (newDescription.length < 10)
+    return res
+      .status(400)
+      .send('short_desc');
+  else if (newDescription.length > 8192)
+    return res
+      .status(400)
+      .send('long_desc');
+
+  try {
+
+    // We want to make sure they're updating the description for a package that they own
+    if (!(await author.hasPackage(packageId))) 
+      return res.sendStatus(403);
+
+    await packageDatabase.updateDescription(packageId, newDescription);
+
+    res.sendStatus(204);
+
+    const { packageName } = await packageDatabase.getPackageData(packageId);
+    author.sendEmail('Description updated', `Description updated for the package '${packageName}' (${packageId}). No action is needed.`);
+  } catch (e) {
+    console.error(e);
+    res.sendStatus(500);
   }
 });
 

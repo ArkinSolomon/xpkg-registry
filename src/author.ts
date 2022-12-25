@@ -231,6 +231,18 @@ export default class Author {
   }
 
   /**
+   * Check if an author has a package.
+   * 
+   * @async
+   * @param {string} packageId The id of the package to check if the author owns.
+   * @returns {Promise<boolean>} A promise which resolves to true if the author owns a package.
+   */
+  async hasPackage(packageId: string): Promise<boolean> {
+    packageId = packageId.trim().toLowerCase();
+    return !!(await this.getPackages()).find(p => p.packageId === packageId);
+  }
+
+  /**
    * Change the name of the author, and invalidate the session.
    * 
    * @async

@@ -42,6 +42,7 @@ import Author, { AuthTokenPayload } from './author.js';
 const authRoutes = [
   '/packages/upload',
   '/packages/new',
+  '/packages/description',
   '/account/*'
 ];
 

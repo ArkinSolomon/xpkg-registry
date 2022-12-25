@@ -183,7 +183,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
       if (data.length === 0)
         throw new NoSuchPackageError(packageId);
 
-      data.forEach((version: VersionData & { 'HEX(hash)': string|undefined }) => {
+      data.forEach((version: VersionData & { 'HEX(hash)': string | undefined }) => {
         version.hash = version['HEX(hash)'] as string;
         delete version['HEX(hash)'];
       });
@@ -257,6 +257,23 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     newName = newName.trim();
 
     const query = format('UPDATE packages SET authorName=? WHERE authorId=?;', [newName, authorId]);
+    await this._query(query);
+  }
+
+  /**
+   * Update the description for a package.
+   * 
+   * @async
+   * @name PackageDatabase#updateDescription
+   * @param {string} packageId The id of the package which we're changing the description of.
+   * @param {string} newDescription The new description of the package.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   */
+  async updateDescription(packageId: string, newDescription: string): Promise<void> {
+    packageId = packageId.trim().toLowerCase();
+    newDescription = newDescription.trim();
+
+    const query = format('UPDATE packages SET description=? WHERE packageId=?;', [newDescription, packageId]);
     await this._query(query);
   }
 }

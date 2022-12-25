@@ -211,11 +211,22 @@ interface PackageDatabase {
    * 
    * @async
    * @name PackageDatabase#updateAuthorName
-   * @param authorId The id of the author to change the name of.
-   * @param newName The new name of the author.
+   * @param {string} authorId The id of the author to change the name of.
+   * @param {string} newName The new name of the author.
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
    */
   updateAuthorName(authorId: string, newName: string): Promise<void>;
+
+  /**
+   * Update the description for a package.
+   * 
+   * @async
+   * @name PackageDatabase#updateDescription
+   * @param {string} packageId The id of the package which we're changing the description of.
+   * @param {string} newDescription The new description of the package.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   */
+  updateDescription(packageId: string, newDescription: string): Promise<void>;
 }
 
 // We have to seperate the export because EsLint gets mad

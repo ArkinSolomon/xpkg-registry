@@ -57,23 +57,24 @@ route.post('/changename', async (req, res) => {
 
 route.post('/packages', async (req, res) => {
   const author = req.user as Author;
-  const data: (PackageData & { versions: Omit<VersionData, 'hash'>[]; })[] = [];
-  
+  const data: (PackageData & { versions: (Omit<VersionData, 'uploadDate'> & { uploadDate: string; })[]; })[] = [];
+
   try {
     const packages = await author.getPackages();
     for (const pkg of packages) {
       const d = {
         ...pkg,
-        versions: [] as Omit<VersionData, 'hash'>[]
+        versions: [] as (Omit<VersionData, 'uploadDate'> & { uploadDate: Date | string; })[]
       };
 
-      // Remove the hash from the versions
       d.versions = (await packageDatabase.getVersionData(pkg.packageId))
-        .map((v: Partial<VersionData>) => {
-          delete v.hash;
-          return v as Omit<VersionData, 'hash'>;
+        .map((v: Omit<VersionData, 'uploadDate'> & { uploadDate: Date | string; }) => {
+          v.uploadDate = (v.uploadDate as Date).toISOString();
+          return v as Omit<VersionData, 'uploadDate'> & { uploadDate: string; };
         });
-      data.push(d);
+      
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      data.push(d as any);
     }
 
     res.json(data);

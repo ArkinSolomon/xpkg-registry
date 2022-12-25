@@ -12,7 +12,6 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
-
 import Author from '../author.js';
 import { Version } from '../util/version.js';
 
@@ -63,6 +62,7 @@ export type PackageData = {
  * @property {boolean} private True if the version will be published later.
  * @property {string} loc The URL from which to download the package version.
  * @property {number} installs The number of installs for this version.
+ * @property {Date} uploadDate The upload time of the package.
  */
 export type VersionData = {
   packageId: string;
@@ -74,6 +74,7 @@ export type VersionData = {
   loc: string;
   privateKey: string;
   installs: string;
+  uploadDate: Date;
 };
 
 /**

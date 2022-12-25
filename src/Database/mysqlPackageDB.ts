@@ -87,7 +87,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     if (accessConfig.isPrivate && !accessConfig.privateKey)
       throw new Error('Private version does not have a private key');
 
-    const query = format('INSERT INTO versions (packageId, version, hash, published, private, privateKey, approved, loc, authorId) VALUES (?, ?, UNHEX(?), ?, ?, ?, False, ?, ?);', [packageId, versionString, hash, accessConfig.isPublished, accessConfig.isPrivate, accessConfig.privateKey ?? null, loc, author.id]);
+    const query = format('INSERT INTO versions (packageId, version, hash, published, private, privateKey, approved, loc, authorId, uploadDate) VALUES (?, ?, UNHEX(?), ?, ?, ?, False, ?, ?, ?);', [packageId, versionString, hash, accessConfig.isPublished, accessConfig.isPrivate, accessConfig.privateKey ?? null, loc, author.id, new Date()]);
     await this._query(query);
   }
 
@@ -165,17 +165,18 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
     if (typeof version !== 'undefined') {
       const versionString = versionStr(version);
-      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey, installs FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
+      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
       const data = await this._query(query);
 
       if (data.length === 0)
         throw new NoSuchPackageError(packageId, versionString);
 
+      // Convert 'HEX(hash)' to hash
       data[0].hash = data[0]['HEX(hash)'];
       delete data[0]['HEX(hash)'];
       return data[0] as VersionData;
     } else {
-      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey, installs FROM versions WHERE packageId=?;', [packageId]);
+      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
 
       // If the package has been uploaded it *must* have an initial version.

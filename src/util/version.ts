@@ -24,8 +24,9 @@ export type Version = [number, number, number, ('a' | 'b')?, number?];
  * Convert a version to a string.
  * 
  * @param {Version} version The version to convert to a string.
+ * @returns {string} The version represented as a string.
  */
-export function versionStr(version: Version) {
+export function versionStr(version: Version): string {
   let finalStr = version.slice(0, 3).join('.');
   if (version[3])
     finalStr += version.slice(3, 5).join('');
@@ -39,7 +40,7 @@ export function versionStr(version: Version) {
  * @returns {Version|undefined} The version decomposed if the version is valid, otherwise none.
  */
 export default function isVersionValid(version: string): Version | undefined {
-  if (version.length < 1 || version.length > 15)
+  if (version !== version.trim().toLowerCase() || version.length < 1 || version.length > 15 || version.endsWith('.'))
     return;
 
   const versionDecomp: Version = [0, 0, 0, void (0), void (0)];

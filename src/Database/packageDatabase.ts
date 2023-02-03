@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022. X-Pkg Registry Contributors.
+ * Copyright (c) 2022-2023. Arkin Solomon.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -57,9 +57,8 @@ export type PackageData = {
  * @property {string} packageId The identifier of the package.
  * @property {string} version The semantic version string of the package.
  * @property {string} hash The hexadecimal hash of the package files.
- * @property {boolean} approved True if the version is approved.
- * @property {boolean} published True if the version has been published.
- * @property {boolean} private True if the version will be published later.
+ * @property {boolean} isPublic True if the version is public.
+ * @property {boolean} isStored True if the version is stored.
  * @property {string} loc The URL from which to download the package version.
  * @property {number} installs The number of installs for this version.
  * @property {Date} uploadDate The upload time of the package.
@@ -68,9 +67,8 @@ export type VersionData = {
   packageId: string;
   version: string;
   hash: string;
-  approved: boolean;
-  published: boolean;
-  private: boolean;
+  isPublic: boolean;
+  isStored: boolean;
   loc: string;
   privateKey: string;
   installs: string;
@@ -105,19 +103,18 @@ interface PackageDatabase {
    * @name PackageDatabase#insertVersion
    * @param {string} packageId The package identifier of the package that this version is for.
    * @param {Version} version The version string of the version.
-   * @param {Author} author The author that created the package.
    * @param {string} hash The hash of the package as a hexadecimal string.
    * @param {string} loc The URL of the package from which to download.
-   * @param {Object} accessConfig The access config of the object.
-   * @param {boolean} accessConfig.isPublished True if the package is to be published.
-   * @param {boolean} accessConfig.isPrivate True if the package is to be private.
-   * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private.
+   * @param {Object} accessConfig The access config of the package version.
+   * @param {boolean} accessConfig.isPublic True if the package is to be public.
+   * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
+   * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private and stored.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    * @throws {InvalidPackageError} Error thrown if the access config is invalid.
    */
-  addPackageVersion(packageId: string, version: Version, author: Author, hash: string, loc: string, accessConfig: {
-    isPublished: boolean;
-    isPrivate: boolean;
+  addPackageVersion(packageId: string, version: Version, hash: string, loc: string, accessConfig: {
+    isPublic: boolean;
+    isStored: boolean;
     privateKey?: string;
   }): Promise<void>;
 

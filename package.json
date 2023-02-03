@@ -9,7 +9,7 @@
     "start": "npm run build && node -r dotenv/config .",
     "lint": "npx eslint src/**"
   },
-  "author": "X-Pkg Registry Contributors",
+  "author": "Arkin Solomon",
   "license": "Apache-2.0",
   "devDependencies": {
     "@types/cookie-parser": "^1.4.3",

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022. X-Pkg Registry Contributors.
+ * Copyright (c) 2022-2023. Arkin Solomon.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -113,7 +113,7 @@ async function updateData(): Promise<void> {
 
     // Get only the version strings of all of the versions of the package
     newData.versions = (await packageDatabase.getVersionData(pkg.packageId))
-      .filter(v => v.approved && v.published)
+      .filter(v => v.isPublic)
       .map(v => v.version);
   }
 

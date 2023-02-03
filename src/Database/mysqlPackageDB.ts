@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022. X-Pkg Registry Contributors.
+ * Copyright (c) 2022-2023. Arkin Solomon.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -61,19 +61,18 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * @async
    * @param {string} packageId The package identifier of the package that this version is for.
    * @param {Version} version The version string of the version.
-   * @param {Author} author The author that created the package.
    * @param {string} hash The hash of the package as a hexadecimal string.
    * @param {string} loc The URL of the package from which to download.
-   * @param {Object} accessConfig The access config of the object.
-   * @param {boolean} accessConfig.isPublished True if the package is to be published.
-   * @param {boolean} accessConfig.isPrivate True if the package is to be private.
-   * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private.
+   * @param {Object} accessConfig The access config of the package version.
+   * @param {boolean} accessConfig.isPublic True if the package is to be public.
+   * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
+   * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private and stored.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    * @throws {InvalidPackageError} Error thrown if the access config is invalid.
    */
-  async addPackageVersion(packageId: string, version: Version, author: Author, hash: string, loc: string, accessConfig: {
-    isPublished: boolean;
-    isPrivate: boolean;
+  async addPackageVersion(packageId: string, version: Version, hash: string, loc: string, accessConfig: {
+    isPublic: boolean;
+    isStored: boolean;
     privateKey?: string;
   }): Promise<void> {
     packageId = packageId.trim().toLowerCase();
@@ -81,13 +80,13 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
     const versionString = versionStr(version);
 
-    if (accessConfig.isPublished && accessConfig.isPrivate)
+    if (accessConfig.isPublic && !accessConfig.isStored)
       throw new InvalidPackageError('published_private_version');
 
-    if (accessConfig.isPrivate && !accessConfig.privateKey)
+    if (!accessConfig.isPublic && !accessConfig.privateKey && accessConfig.isStored)
       throw new Error('Private version does not have a private key');
 
-    const query = format('INSERT INTO versions (packageId, version, hash, published, private, privateKey, approved, loc, authorId, uploadDate) VALUES (?, ?, UNHEX(?), ?, ?, ?, False, ?, ?, ?);', [packageId, versionString, hash, accessConfig.isPublished, accessConfig.isPrivate, accessConfig.privateKey ?? null, loc, author.id, new Date()]);
+    const query = format('INSERT INTO versions (packageId, version, hash, isPublic, isStored, privateKey, loc, uploadDate) VALUES (?, ?, UNHEX(?), ?, ?, ?, ?, ?);', [packageId, versionString, hash, accessConfig.isPublic, accessConfig.isStored, accessConfig.privateKey ?? null, loc, new Date()]);
     await this._query(query);
   }
 
@@ -165,7 +164,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
     if (typeof version !== 'undefined') {
       const versionString = versionStr(version);
-      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
+      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
       const data = await this._query(query);
 
       if (data.length === 0)
@@ -176,7 +175,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
       delete data[0]['HEX(hash)'];
       return data[0] as VersionData;
     } else {
-      const query = format('SELECT packageId, version, HEX(hash), approved, published, private, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=?;', [packageId]);
+      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
 
       // If the package has been uploaded it *must* have an initial version.

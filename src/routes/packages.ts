@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022. X-Pkg Registry Contributors.
+ * Copyright (c) 2022-2023. Arkin Solomon.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -28,6 +28,7 @@ import * as validators from '../util/validators.js';
 import isVersionValid from '../util/version.js';
 import fileProcessor from '../util/fileProcessor.js';
 import packageDatabase from '../database/mysqlPackageDB.js';
+import { PackageType } from '../database/packageDatabase.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -55,7 +56,7 @@ route.get('/:packageId/:version', async (req, res) => {
 
   const versionData = await packageDatabase.getVersionData(packageId, version);
 
-  if (!versionData.approved || !versionData.published)
+  if (!versionData.isPublic)
     return res.sendStatus(404);
 
   res
@@ -70,31 +71,58 @@ route.post('/new', upload.single('file'), async (req, res) => {
   const file = req.file;
   const author = req.user as Author;
 
-  let packageId, packageName, packageType, description, initialVersion;
-  const publishedPackage = req.body.published;
-  const privatePackage = req.body.private;
+  let packageId: string;
+  let packageName: string;
+  let packageTypeStr: string;
+  let description: string;
+  let initialVersion: string;
+  let xplaneVersion: string;
+  let isPublic: boolean;
+  let isPrivate: boolean;
+  let isStored: boolean;
+  let dependencies: [string, string][];
+  let optionalDependencies: [string, string][];
+  let incompatibilities: [string, string][];
+
   try {
     packageId = req.body.packageId.trim().toLowerCase();
     packageName = req.body.packageName.trim();
 
     // TODO make this an enum
-    packageType = req.body.packageType.trim().toLowerCase();
+    packageTypeStr = req.body.packageType.trim().toLowerCase();
 
     description = req.body.description.trim();
     initialVersion = req.body.initialVersion.trim().toLowerCase();
+    xplaneVersion = req.body.xplaneVersion.trim().toLowerCase();
 
     checkType(packageId, 'string');
     checkType(packageName, 'string');
-    checkType(packageType, 'string');
+    checkType(packageTypeStr, 'string');
     checkType(description, 'string');
     checkType(initialVersion, 'string');
-    checkType(publishedPackage, 'boolean');
-    checkType(privatePackage, 'boolean');
+    checkType(xplaneVersion, 'string');
+
+    isPublic = typeof req.body.isPublic === 'string' && req.body.isPublic === 'true';
+    isPrivate = typeof req.body.isPrivate === 'string' && req.body.isPrivate === 'true';
+    isStored = typeof req.body.isStored === 'string' && req.body.isStored === 'true';
+
+    dependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
+    optionalDependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
+    incompatibilities = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
   } catch (e) {
     console.error(e);
     return res
       .status(400)
       .send('missing_form_data');
+  }
+
+  let packageType: PackageType;
+  try {
+    packageType = getPackageType(packageTypeStr);
+  } catch {
+    return res
+      .status(400)
+      .send('invalid_package_type');
   }
 
   if (!file)
@@ -161,6 +189,11 @@ route.post('/new', upload.single('file'), async (req, res) => {
       .status(400)
       .send('profane_desc');
 
+  if (isPublic && (isPrivate || !isStored))
+    return res
+      .status(400)
+      .send('invalid_access_config');
+
   try {
     const [packageIdExists, packageNameExists] = await Promise.all([
       packageDatabase.packageIdExists(packageId),
@@ -184,7 +217,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
 
   // const destFile = path.join(os.tmpdir(), 'unzipped', n, packageId + '.zip');
   // const outFile = path.join(os.tmpdir(), 'xpkg', n, packageId + '.xpkg');
-  const destFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped', n, packageId);
+  const destFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped', n);
   const outFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files', n, awsId + '.xpkg');
 
   // Process the package
@@ -193,7 +226,21 @@ route.post('/new', upload.single('file'), async (req, res) => {
       .createReadStream(file.path)
       .pipe(unzip.Extract({ path: destFile }))
       .promise();
-    await fileProcessor(destFile, outFile, author.id, packageName, packageId, version, packageType);
+    
+    // Note that destFile is the unzipped file, NOT the target zip file
+    await fileProcessor(
+      destFile,
+      outFile,
+      author.id,
+      packageName,
+      packageId,
+      version,
+      packageType,
+      dependencies,
+      optionalDependencies,
+      incompatibilities,
+      isStored
+    );
   } catch (e) {
     console.error(e);
     return res
@@ -217,9 +264,9 @@ route.post('/new', upload.single('file'), async (req, res) => {
 
     await Promise.all([
       packageDatabase.addPackage(packageId, packageName, author, description, packageType),
-      packageDatabase.addPackageVersion(packageId, version, author, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
-        isPublished: publishedPackage,
-        isPrivate: privatePackage
+      packageDatabase.addPackageVersion(packageId, version, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
+        isPublic: isPublic,
+        isStored: isStored
       })
     ]);
 
@@ -270,7 +317,7 @@ route.post('/description', async (req, res) => {
   try {
 
     // We want to make sure they're updating the description for a package that they own
-    if (!(await author.hasPackage(packageId))) 
+    if (!(await author.hasPackage(packageId)))
       return res.sendStatus(403);
 
     await packageDatabase.updateDescription(packageId, newDescription);
@@ -294,6 +341,26 @@ route.post('/description', async (req, res) => {
 function checkType(variable: unknown, type: string): void {
   if (typeof variable !== type)
     throw new Error('Types don\'t match');
+}
+
+/**
+ * Get the package type enumeration from a string.
+ * 
+ * @param {string} packageType The string of the package type.
+ * @returns {PackageType} The package type enumeration based on the string.
+ * @throws {Error} Error thrown if the package type string is not valid.
+ */
+function getPackageType(packageType: string): PackageType {
+  switch (packageType) {
+  case 'aircraft': return PackageType.Aircraft;
+  case 'scenery': return PackageType.Scenery;
+  case 'plugin': return PackageType.Plugin;
+  case 'livery': return PackageType.Livery;
+  case 'executable': return PackageType.Livery;
+  case 'other': return PackageType.Other;
+  default:
+    throw new Error(`Invalid package type: "${packageType}"`);
+  }
 }
 
 export default route;

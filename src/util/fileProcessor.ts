@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022. X-Pkg Registry Contributors.
+ * Copyright (c) 2022-2023. Arkin Solomon.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,41 +18,73 @@ import path from 'path';
 import XPkgInvalidPackageError from '../errors/invalidPackageError.js';
 import Mode from 'stat-mode';
 import archiver from 'archiver';
-import { Version } from './version.js';
+import { Version, versionStr } from './version.js';
+import { PackageType } from '../database/packageDatabase.js';
 
 /**
  * Process a zip file and create an xpkg file.
  * 
- * @param {string} file The absolute path to the file to process.
+ * @param {string} file The absolute path to the file to process, that is the directory that contains the package id directory.
  * @param {string} dest The absolute path to the destination file (include .xpkg).
  * @param {string} authorId The id of the author that is uploading this package version,
  * @param {string} packageName The name of the package that the user provided.
  * @param {string} packageId The id of the package that the user provided.
  * @param {Version} packageVersion The version of the package version that the user provided.
- * @param {string} packageType The type of the package that the user provided.
+ * @param {PackageType} packageType The type of the package that the user provided.
+ * @param {[string, string][]} dependencies The list of dependencies of the package, the name then version selection string.
+ * @param {[string, string][]} optionalDependencies The list of optional dependencies of the package, the name then version selection string.
+ * @param {[string, string][]} incompatibilities The list of incompatibilites of the package, the name then version selection string.
+ * @param {[string, string][]} stored True if the package is being stored.
  */
-export default async function processFile(file: string, dest: string, authorId: string, packageName: string, packageId: string, packageVersion: Version, packageType: string) {
+export default async function processFile(
+  file: string,
+  dest: string,
+  authorId: string,
+  packageName: string,
+  packageId: string,
+  packageVersion: Version,
+  packageType: PackageType,
+  dependencies: [string, string][],
+  optionalDependencies: [string, string][],
+  incompatibilities: [string, string][],
+  stored: boolean
+): Promise<void> {
   const files = await fs.readdir(file);
+
+  // Insufficient permissions to delete __MACOSX directory, so just process the sub-folder.
+  if (files.includes('__MACOSX')) {
+    if (files.length != 2)
+      throw new XPkgInvalidPackageError('invalid_macosx');
+    
+    const subFolderName = files.find(fName => fName !== '__MACOSX');
+    file = path.join(file, subFolderName as string);
+    
+    return processFile(file, dest, authorId, packageName, packageId, packageVersion, packageType, dependencies, optionalDependencies, incompatibilities, stored);
+  }
 
   if (!files.includes(packageId))
     throw new XPkgInvalidPackageError('no_file_dir');
 
-  const packagePath = path.join(file, packageId);
+  // const packagePath = path.join(file, packageId);
+  // const packageFiles = await fs.readdir(packagePath);
 
-  const packageFiles = await fs.readdir(packagePath);
-
-  if (packageFiles.includes('manifest.json'))
+  if (files.includes('manifest.json'))
     throw new XPkgInvalidPackageError('manifest_exists');
+  const manifestPath = path.join(file, 'manifest.json');
 
   const manifest = {
     packageName,
     packageId,
-    packageVersion,
-    authorId
+    packageVersion: versionStr(packageVersion),
+    authorId,
+    dependencies,
+    optionalDependencies,
+    incompatibilities,
+    stored
   };
 
   let hasSymbolicLink = false;
-  if (await findTrueFile(packagePath, (s, p) => {
+  if (await findTrueFile(file, (s, p) => {
 
     const mode = Mode(s);
 
@@ -69,10 +101,14 @@ export default async function processFile(file: string, dest: string, authorId: 
       || ((mode.owner.execute || mode.group.execute || mode.others.execute) && packageType !== 'executable');
   }))
     throw new XPkgInvalidPackageError(hasSymbolicLink ? 'has_symbolic_link' : 'has_exec');
-
+  
+  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 4), 'utf-8');
+  
+  // We need to make the parent so that zipping doesn't fail
   const parent = path.resolve(dest, '..');
   await fs.mkdir(parent, { recursive: true });
-  await zipDirectory(packagePath, dest);
+  
+  await zipDirectory(file, dest);
 }
 
 /** 

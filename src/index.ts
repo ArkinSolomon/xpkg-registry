@@ -43,6 +43,7 @@ const authRoutes = [
   '/packages/upload',
   '/packages/new',
   '/packages/description',
+  '/packages/newversion',
   '/account/*'
 ];
 

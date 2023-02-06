@@ -25,7 +25,7 @@ import crypto from 'crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import Author from '../author.js';
 import * as validators from '../util/validators.js';
-import isVersionValid from '../util/version.js';
+import isVersionValid, { Version, versionStr } from '../util/version.js';
 import fileProcessor from '../util/fileProcessor.js';
 import packageDatabase from '../database/mysqlPackageDB.js';
 import { PackageType } from '../database/packageDatabase.js';
@@ -232,6 +232,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
       destFile,
       outFile,
       author.id,
+      author.name,
       packageName,
       packageId,
       version,
@@ -270,7 +271,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
       })
     ]);
 
-    author.sendEmail('Package uploaded!', 'Idk i haven\'t written this yet BUT you uploaded a package lol so');
+    author.sendEmail(`X-Pkg: '${packageName}' published`, `Your package '${packageName}' (${packageId}) was successfully uploaded to the registry.\n\nInitial version: ${versionStr(version)}\nChecksum: ${hash}`);
 
     return res.sendStatus(204);
   } catch (e) {
@@ -279,7 +280,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
   }
 });
 
-route.post('/description', async (req, res) => {
+route.patch('/description', async (req, res) => {
   const author = req.user as Author;
 
   if (!req.body.newDescription)
@@ -325,10 +326,164 @@ route.post('/description', async (req, res) => {
     res.sendStatus(204);
 
     const { packageName } = await packageDatabase.getPackageData(packageId);
-    author.sendEmail('Description updated', `Description updated for the package '${packageName}' (${packageId}). No action is needed.`);
+    author.sendEmail(`X-Pkg: '${packageName}' Description updated`, `Description updated for the package '${packageName}' (${packageId}).`);
   } catch (e) {
     console.error(e);
     res.sendStatus(500);
+  }
+});
+
+route.post('/newversion', upload.single('file'), async (req, res) => {
+  const author = req.user as Author;
+  const file = req.file;
+  
+  let packageId: string;
+  let versionString: string;
+  let xplaneVersion: string;
+  let isPublic: boolean;
+  let isPrivate: boolean;
+  let isStored: boolean;
+  let dependencies: [string, string][];
+  let optionalDependencies: [string, string][];
+  let incompatibilities: [string, string][];
+
+  let version: Version | undefined;
+
+  let packageName: string;
+  let packageType: PackageType;
+  
+  try {
+    packageId = req.body.packageId.trim().toLowerCase();
+    versionString = req.body.versionString.trim().toLowerCase();
+    xplaneVersion = req.body.xplaneVersion.trim().toLowerCase();
+
+    checkType(packageId, 'string');
+    checkType(versionString, 'string');
+    checkType(xplaneVersion, 'string');
+
+    isPublic = typeof req.body.isPublic === 'string' && req.body.isPublic === 'true';
+    isPrivate = typeof req.body.isPrivate === 'string' && req.body.isPrivate === 'true';
+    isStored = typeof req.body.isStored === 'string' && req.body.isStored === 'true';
+
+    dependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
+    optionalDependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
+    incompatibilities = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
+  } catch (e) {
+    console.error(e);
+    return res
+      .status(400)
+      .send('missing_form_data');
+  }
+
+  if (!file)
+    return res
+      .status(400)
+      .send('no_file');
+
+  try {
+    const authorPackages = await packageDatabase.getAuthorPackages(author.id);
+    const thisPackage = await authorPackages.find(d => d.packageId === packageId);
+    if (!packageId || !thisPackage)
+      return res
+        .sendStatus(403);
+    
+    packageName = thisPackage.packageName as string;
+    packageType = thisPackage.packageType;
+
+    if (versionString.length < 1)
+      return res
+        .status(400)
+        .send('no_version');
+    else if (versionString.length > 15)
+      return res
+        .status(400)
+        .send('long_version');
+
+    version = isVersionValid(versionString);
+    if (!version)
+      return res
+        .status(400)
+        .send('invalid_verison');
+        
+    const thisVersionStr = versionStr(version);
+    const packageVersions = await packageDatabase.getVersionData(packageId);
+    const packageVersion = await packageVersions.find(v => v.version === thisVersionStr); 
+    if (packageVersion)
+      return res
+        .status(400)
+        .send('version_exists');
+  } catch (e) {
+    console.error(e);
+    return res.sendStatus(500);
+  }
+
+  if (isPublic && (isPrivate || !isStored))
+    return res
+      .status(400)
+      .send('invalid_access_config');
+  
+  const [n, awsId] = await Promise.all([nanoid(32), nanoid(64)]);
+
+  // const destFile = path.join(os.tmpdir(), 'unzipped', n, packageId + '.zip');
+  // const outFile = path.join(os.tmpdir(), 'xpkg', n, packageId + '.xpkg');
+  const destFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped', n);
+  const outFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files', n, awsId + '.xpkg');
+    
+  try {
+    await fs
+      .createReadStream(file.path)
+      .pipe(unzip.Extract({ path: destFile }))
+      .promise();
+        
+    // Note that destFile is the unzipped file, NOT the target zip file
+    await fileProcessor(
+      destFile,
+      outFile,
+      author.id,
+      author.name,
+      packageName,
+      packageId,
+      version,
+      packageType,
+      dependencies,
+      optionalDependencies,
+      incompatibilities,
+      isStored
+    );
+  } catch (e) {
+    console.error(e);
+    return res
+      .status(422)
+      .send('invalid_package');
+  }
+    
+  // Upload the package and add it to the database
+  try {
+    const fileBuffer = await fsProm.readFile(outFile);
+    const hashSum = crypto.createHash('sha256');
+    hashSum.update(fileBuffer);
+    const hash = hashSum.digest('hex');
+    
+    const putCmd = new PutObjectCommand({
+      Bucket: bucketName,
+      Key: awsId,
+      Body: fileBuffer
+    });
+    await s3client.send(putCmd);
+    
+    await Promise.all([
+      packageDatabase.addPackageVersion(packageId, version, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
+        isPublic: isPublic,
+        isStored: isStored
+      })
+    ]);
+    
+    author.sendEmail(`X-Pkg: '${packageName}' new version uploaded`, `Your package '${packageName}' (${packageId}) had a new version added to it.\n\nNew version: ${versionStr(version)}\nChecksum: ${hash}`);
+    
+    return res.sendStatus(204);
+  } catch (e) {
+    console.error(e);
+    return res.sendStatus(500);
   }
 });
 

@@ -26,7 +26,8 @@ import { PackageType } from '../database/packageDatabase.js';
  * 
  * @param {string} file The absolute path to the file to process, that is the directory that contains the package id directory.
  * @param {string} dest The absolute path to the destination file (include .xpkg).
- * @param {string} authorId The id of the author that is uploading this package version,
+ * @param {string} authorId The id of the author that is uploading this package version.
+ * @param {string} authorName The name of the author that is uploading this package verison.
  * @param {string} packageName The name of the package that the user provided.
  * @param {string} packageId The id of the package that the user provided.
  * @param {Version} packageVersion The version of the package version that the user provided.
@@ -40,6 +41,7 @@ export default async function processFile(
   file: string,
   dest: string,
   authorId: string,
+  authorName: string,
   packageName: string,
   packageId: string,
   packageVersion: Version,
@@ -51,7 +53,7 @@ export default async function processFile(
 ): Promise<void> {
   const files = await fs.readdir(file);
 
-  // Insufficient permissions to delete __MACOSX directory, so just process the sub-folder.
+  // Insufficient permissions to delete __MACOSX directory, so just process the sub-folder
   if (files.includes('__MACOSX')) {
     if (files.length != 2)
       throw new XPkgInvalidPackageError('invalid_macosx');
@@ -59,7 +61,7 @@ export default async function processFile(
     const subFolderName = files.find(fName => fName !== '__MACOSX');
     file = path.join(file, subFolderName as string);
     
-    return processFile(file, dest, authorId, packageName, packageId, packageVersion, packageType, dependencies, optionalDependencies, incompatibilities, stored);
+    return processFile(file, dest, authorId, authorName, packageName, packageId, packageVersion, packageType, dependencies, optionalDependencies, incompatibilities, stored);
   }
 
   if (!files.includes(packageId))

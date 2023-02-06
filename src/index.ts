@@ -55,7 +55,7 @@ let authorCache: Record<string, Author> = {};
 setInterval(() => {
   authSessionCache = {};
   authorCache = {};
-}, 10000);
+}, 1500);
 
 app.use(authRoutes, async (req, res, next) => {
   try {
@@ -123,6 +123,6 @@ async function updateData(): Promise<void> {
 
 await updateData();
 setInterval(updateData, 60 * 1000);
-app.listen(5020, () => {
+app.listen(process.env.port || 5020, () => {
   console.log('Server started');
 });

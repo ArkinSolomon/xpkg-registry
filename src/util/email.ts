@@ -12,6 +12,15 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
+import nodemailer from 'nodemailer';
+
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASSWORD
+  }
+});
 
 /**
  * Send an email to someone. 
@@ -21,7 +30,10 @@
  * @param {string} body The body/message of the email.
  */
 export default async function (address: string, subject: string, body: string): Promise<void> {
-
-  // TODO This
-  console.log(`Email to ${address}: [${subject}] -- ` + body);
+  await transporter.sendMail({
+    from: `"X-Pkg Registry" <${process.env.EMAIL_FROM}>`,
+    to: address,
+    subject,
+    text: body
+  });
 }

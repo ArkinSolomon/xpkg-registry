@@ -19,7 +19,7 @@ import multer from 'multer';
 import os from 'os';
 import fs from 'fs';
 import fsProm from 'fs/promises';
-import { nanoid } from 'nanoid/async';
+import { nanoid, customAlphabet } from 'nanoid/async';
 import unzip from 'unzipper';
 import crypto from 'crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
@@ -33,6 +33,8 @@ import { PackageType } from '../database/packageDatabase.js';
 const storeFile = path.resolve('./data.json');
 const route = Router();
 const upload = multer({ dest: os.tmpdir() });
+
+const privateKeyNanoId = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
 
 const bucketName = 'xpkgregistrydev';
 
@@ -474,7 +476,8 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
     await Promise.all([
       packageDatabase.addPackageVersion(packageId, version, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
         isPublic: isPublic,
-        isStored: isStored
+        isStored: isStored,
+        privateKey: !isPublic && isStored ? await privateKeyNanoId(32) : void (0)
       })
     ]);
     

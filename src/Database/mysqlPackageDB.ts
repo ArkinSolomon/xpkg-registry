@@ -83,7 +83,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     if (accessConfig.isPublic && !accessConfig.isStored)
       throw new InvalidPackageError('published_private_version');
 
-    if (!accessConfig.isPublic && !accessConfig.privateKey && accessConfig.isStored)
+    if (!accessConfig.isPublic && accessConfig.isStored && !accessConfig.privateKey )
       throw new Error('Private version does not have a private key');
 
     const query = format('INSERT INTO versions (packageId, version, hash, isPublic, isStored, privateKey, loc, uploadDate) VALUES (?, ?, UNHEX(?), ?, ?, ?, ?, ?);', [packageId, versionString, hash, accessConfig.isPublic, accessConfig.isStored, accessConfig.privateKey ?? null, loc, new Date()]);

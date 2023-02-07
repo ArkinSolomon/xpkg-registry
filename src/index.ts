@@ -116,6 +116,8 @@ async function updateData(): Promise<void> {
     newData.versions = (await packageDatabase.getVersionData(pkg.packageId))
       .filter(v => v.isPublic)
       .map(v => v.version);
+    
+    data.push(newData);
   }
 
   return fs.writeFile(storeFile, JSON.stringify({ data }), 'utf-8');

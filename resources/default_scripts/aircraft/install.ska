@@ -1,0 +1,5 @@
+#
+# X-Pkg Registry default install script for aircraft
+#
+
+COPY @default TO /Aircraft/"Extra Aircraft"/$(@packageName)

@@ -13,6 +13,7 @@
  * either express or implied limitations under the License.
  */
 import fs from 'fs/promises';
+import { existsSync as exists } from 'fs';
 import { unlinkSync, lstatSync, Stats, createWriteStream } from 'fs';
 import path from 'path';
 import XPkgInvalidPackageError from '../errors/invalidPackageError.js';
@@ -35,7 +36,6 @@ import { PackageType } from '../database/packageDatabase.js';
  * @param {[string, string][]} dependencies The list of dependencies of the package, the name then version selection string.
  * @param {[string, string][]} optionalDependencies The list of optional dependencies of the package, the name then version selection string.
  * @param {[string, string][]} incompatibilities The list of incompatibilites of the package, the name then version selection string.
- * @param {[string, string][]} stored True if the package is being stored.
  */
 export default async function processFile(
   file: string,
@@ -48,8 +48,7 @@ export default async function processFile(
   packageType: PackageType,
   dependencies: [string, string][],
   optionalDependencies: [string, string][],
-  incompatibilities: [string, string][],
-  stored: boolean
+  incompatibilities: [string, string][]
 ): Promise<void> {
   const files = await fs.readdir(file);
 
@@ -61,14 +60,11 @@ export default async function processFile(
     const subFolderName = files.find(fName => fName !== '__MACOSX');
     file = path.join(file, subFolderName as string);
     
-    return processFile(file, dest, authorId, authorName, packageName, packageId, packageVersion, packageType, dependencies, optionalDependencies, incompatibilities, stored);
+    return processFile(file, dest, authorId, authorName, packageName, packageId, packageVersion, packageType, dependencies, optionalDependencies, incompatibilities);
   }
 
   if (!files.includes(packageId))
     throw new XPkgInvalidPackageError('no_file_dir');
-
-  // const packagePath = path.join(file, packageId);
-  // const packageFiles = await fs.readdir(packagePath);
 
   if (files.includes('manifest.json'))
     throw new XPkgInvalidPackageError('manifest_exists');
@@ -81,8 +77,7 @@ export default async function processFile(
     authorId,
     dependencies,
     optionalDependencies,
-    incompatibilities,
-    stored
+    incompatibilities
   };
 
   let hasSymbolicLink = false;
@@ -103,8 +98,14 @@ export default async function processFile(
       || ((mode.owner.execute || mode.group.execute || mode.others.execute) && packageType !== 'executable');
   }))
     throw new XPkgInvalidPackageError(hasSymbolicLink ? 'has_symbolic_link' : 'has_exec');
-  
-  await fs.writeFile(manifestPath, JSON.stringify(manifest, null, 4), 'utf-8');
+
+  await Promise.all([
+    fs.writeFile(manifestPath, JSON.stringify(manifest, null, 4), 'utf-8'),
+    
+    useDefaultScript('install.ska', packageType, file, files),
+    useDefaultScript('uninstall.ska', packageType, file, files),
+    useDefaultScript('upgrade.ska', packageType, file, files)
+  ]);
   
   // We need to make the parent so that zipping doesn't fail
   const parent = path.resolve(dest, '..');
@@ -113,11 +114,29 @@ export default async function processFile(
   await zipDirectory(file, dest);
 }
 
+/**
+ * Use a default installation script if the author does not provide one
+ * 
+ * @param {string} scriptName The name of the script to use the default for (like install.ska).
+ * @param {PackageType} packageType The type of the package.
+ * @param {string} file The root directory of the package.
+ * @param {string[]} files The files in the root directory of the package.
+ */
+async function useDefaultScript(scriptName: string, packageType: PackageType, file: string, files: string[]): Promise<void> {
+  if (!files.includes(scriptName)){
+    const resourceFile = path.resolve('resources', 'default_scripts', packageType, scriptName);
+    if (!exists(resourceFile))
+      return;
+    
+    return fs.copyFile(resourceFile, path.join(file, scriptName));
+  }
+}
+
 /** 
  * Find if the callback is true for any child file in any recursive subdirectory.
  * 
- * @param dir The top most parent directory.
- * @param cb The callback to check for truthiness.
+ * @param {string} dir The top most parent directory.
+ * @param {(Stats, string) => boolean} cb The callback to check for truthiness.
  * @returns True if cb is true for any file, or false otherwise.
  */
 async function findTrueFile(dir: string, cb: (stats: Stats, path: string) => boolean): Promise<boolean> {

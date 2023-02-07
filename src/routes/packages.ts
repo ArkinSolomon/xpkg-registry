@@ -242,7 +242,6 @@ route.post('/new', upload.single('file'), async (req, res) => {
       dependencies,
       optionalDependencies,
       incompatibilities,
-      isStored
     );
   } catch (e) {
     console.error(e);
@@ -450,7 +449,6 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
       dependencies,
       optionalDependencies,
       incompatibilities,
-      isStored
     );
   } catch (e) {
     console.error(e);

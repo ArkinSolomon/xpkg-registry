@@ -1,0 +1,5 @@
+#
+# X-Pkg Registry default uninstall script for aircraft
+#
+
+DELETE /Aircraft/"Extra Aircraft"/$(@packageName)

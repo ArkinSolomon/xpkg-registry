@@ -62,6 +62,9 @@ export type PackageData = {
  * @property {string} loc The URL from which to download the package version.
  * @property {number} installs The number of installs for this version.
  * @property {Date} uploadDate The upload time of the package.
+ * @property {[string][string][]} dependencies The dependencies of the version.
+ * @property {[string][string][]} optionalDependencies The optional dependencies of the version.
+ * @property {[string][string][]} incompatibilities The incompatibilities of the version.
  */
 export type VersionData = {
   packageId: string;
@@ -73,6 +76,9 @@ export type VersionData = {
   privateKey: string;
   installs: string;
   uploadDate: Date;
+  dependencies: [string, string][];
+  optionalDependencies: [string, string][];
+  incompatibilities: [string, string][];
 };
 
 /**
@@ -109,6 +115,9 @@ interface PackageDatabase {
    * @param {boolean} accessConfig.isPublic True if the package is to be public.
    * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
    * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private and stored.
+   * @param {[string][string][]} [dependencies] The dependencies of the version.
+   * @param {[string][string][]} [optionalDependencies] The optional dependencies of the version.
+   * @param {[string][string][]} [incompatibilities] The incompatibilities of the version.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    * @throws {InvalidPackageError} Error thrown if the access config is invalid.
    */
@@ -116,7 +125,7 @@ interface PackageDatabase {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
-  }): Promise<void>;
+  }, dependencies: [string, string][], optionalDependencies: [string, string][], incompatibilities: [string, string][]): Promise<void>;
 
   /**
    * Get the package data for a specific package.

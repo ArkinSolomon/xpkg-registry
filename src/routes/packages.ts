@@ -17,10 +17,9 @@ import path from 'path';
 import { Router } from 'express';
 import multer from 'multer';
 import os from 'os';
-import fs from 'fs';
 import fsProm from 'fs/promises';
 import { nanoid, customAlphabet } from 'nanoid/async';
-import unzip from 'unzipper';
+import decompress from 'decompress';
 import crypto from 'crypto';
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3';
 import Author from '../author.js';
@@ -90,7 +89,6 @@ route.post('/new', upload.single('file'), async (req, res) => {
     packageId = req.body.packageId.trim().toLowerCase();
     packageName = req.body.packageName.trim();
 
-    // TODO make this an enum
     packageTypeStr = req.body.packageType.trim().toLowerCase();
 
     description = req.body.description.trim();
@@ -109,8 +107,8 @@ route.post('/new', upload.single('file'), async (req, res) => {
     isStored = typeof req.body.isStored === 'string' && req.body.isStored === 'true';
 
     dependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
-    optionalDependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
-    incompatibilities = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
+    optionalDependencies = typeof req.body.optionalDependencies === 'string' && JSON.parse(req.body.optionalDependencies);
+    incompatibilities = typeof req.body.incompatibilities === 'string' && JSON.parse(req.body.incompatibilities);
   } catch (e) {
     console.error(e);
     return res
@@ -140,7 +138,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
     return res
       .status(400)
       .send('long_id');
-  else if (!/^[a-z0-9_.]+$/i.test(packageId))
+  else if (!validateId(packageId))
     return res
       .status(400)
       .send('invalid_id');
@@ -224,10 +222,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
 
   // Process the package
   try {
-    await fs
-      .createReadStream(file.path)
-      .pipe(unzip.Extract({ path: destFile }))
-      .promise();
+    await decompress(file.path, destFile);
     
     // Note that destFile is the unzipped file, NOT the target zip file
     await fileProcessor(
@@ -257,19 +252,21 @@ route.post('/new', upload.single('file'), async (req, res) => {
     hashSum.update(fileBuffer);
     const hash = hashSum.digest('hex');
 
-    const putCmd = new PutObjectCommand({
-      Bucket: bucketName,
-      Key: awsId,
-      Body: fileBuffer
-    });
-    await s3client.send(putCmd);
+    if (isStored) {
+      const putCmd = new PutObjectCommand({
+        Bucket: bucketName,
+        Key: awsId,
+        Body: fileBuffer
+      });
+      await s3client.send(putCmd);
+    }
 
     await Promise.all([
       packageDatabase.addPackage(packageId, packageName, author, description, packageType),
-      packageDatabase.addPackageVersion(packageId, version, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
+      packageDatabase.addPackageVersion(packageId, version, hash, isStored ? `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}` : 'NOT_STORED', {
         isPublic: isPublic,
         isStored: isStored
-      })
+      }, dependencies, optionalDependencies, incompatibilities)
     ]);
 
     author.sendEmail(`X-Pkg: '${packageName}' published`, `Your package '${packageName}' (${packageId}) was successfully uploaded to the registry.\n\nInitial version: ${versionStr(version)}\nChecksum: ${hash}`);
@@ -281,7 +278,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
   }
 });
 
-route.patch('/description', async (req, res) => {
+route.put('/description', async (req, res) => {
   const author = req.user as Author;
 
   if (!req.body.newDescription)
@@ -367,8 +364,8 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
     isStored = typeof req.body.isStored === 'string' && req.body.isStored === 'true';
 
     dependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
-    optionalDependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
-    incompatibilities = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
+    optionalDependencies = typeof req.body.optionalDependencies === 'string' && JSON.parse(req.body.optionalDependencies);
+    incompatibilities = typeof req.body.incompatibilities === 'string' && JSON.parse(req.body.incompatibilities);
   } catch (e) {
     console.error(e);
     return res
@@ -405,11 +402,9 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
       return res
         .status(400)
         .send('invalid_verison');
-        
-    const thisVersionStr = versionStr(version);
-    const packageVersions = await packageDatabase.getVersionData(packageId);
-    const packageVersion = await packageVersions.find(v => v.version === thisVersionStr); 
-    if (packageVersion)
+
+    const versionExists = await packageDatabase.versionExists(packageId, version);
+    if (versionExists)
       return res
         .status(400)
         .send('version_exists');
@@ -429,14 +424,11 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
   // const outFile = path.join(os.tmpdir(), 'xpkg', n, packageId + '.xpkg');
   const destFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped', n);
   const outFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files', n, awsId + '.xpkg');
-    
+
   try {
-    await fs
-      .createReadStream(file.path)
-      .pipe(unzip.Extract({ path: destFile }))
-      .promise();
-        
-    // Note that destFile is the unzipped file, NOT the target zip file
+    await decompress(file.path, destFile);
+    
+    // Note that destFile is the unzipped file, NOT the target zip file, outFile is the target zip
     await fileProcessor(
       destFile,
       outFile,
@@ -459,26 +451,27 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
     
   // Upload the package and add it to the database
   try {
+    console.log('uploading');
     const fileBuffer = await fsProm.readFile(outFile);
     const hashSum = crypto.createHash('sha256');
     hashSum.update(fileBuffer);
     const hash = hashSum.digest('hex');
-    
-    const putCmd = new PutObjectCommand({
-      Bucket: bucketName,
-      Key: awsId,
-      Body: fileBuffer
-    });
-    await s3client.send(putCmd);
-    
-    await Promise.all([
-      packageDatabase.addPackageVersion(packageId, version, hash, `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}`, {
-        isPublic: isPublic,
-        isStored: isStored,
-        privateKey: !isPublic && isStored ? await privateKeyNanoId(32) : void (0)
-      })
-    ]);
-    
+
+    if (isStored) {
+      const putCmd = new PutObjectCommand({
+        Bucket: bucketName,
+        Key: awsId,
+        Body: fileBuffer
+      });
+      await s3client.send(putCmd);
+    }
+
+    await packageDatabase.addPackageVersion(packageId, version, hash, isStored ? `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}` : 'NOT_STORED', {
+      isPublic: isPublic,
+      isStored: isStored,
+      privateKey: !isPublic && isStored ? await privateKeyNanoId(32) : void (0)
+    }, dependencies, optionalDependencies, incompatibilities);
+
     author.sendEmail(`X-Pkg: '${packageName}' new version uploaded`, `Your package '${packageName}' (${packageId}) had a new version added to it.\n\nNew version: ${versionStr(version)}\nChecksum: ${hash}`);
     
     return res.sendStatus(204);
@@ -517,6 +510,16 @@ function getPackageType(packageType: string): PackageType {
   default:
     throw new Error(`Invalid package type: "${packageType}"`);
   }
+}
+
+/**
+ * Check if a package id is valid.
+ * 
+ * @param {string} id The package id to check.
+ * @returns {boolean} True if the package id is valid, otherwise false.
+ */
+function validateId(id: string): boolean {
+  return (id && /^[a-z]([a-z]|[_\-.]|\d){5,31}$/i.test(id)) as boolean;
 }
 
 export default route;

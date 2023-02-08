@@ -67,6 +67,9 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * @param {boolean} accessConfig.isPublic True if the package is to be public.
    * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
    * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private and stored.
+   * @param {[string][string][]} [dependencies] The dependencies of the version.
+   * @param {[string][string][]} [optionalDependencies] The optional dependencies of the version.
+   * @param {[string][string][]} [incompatibilities] The incompatibilities of the version.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    * @throws {InvalidPackageError} Error thrown if the access config is invalid.
    */
@@ -74,7 +77,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
-  }): Promise<void> {
+  }, dependencies: [string, string][], optionalDependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
     packageId = packageId.trim().toLowerCase();
     hash = hash.toUpperCase();
 
@@ -87,7 +90,25 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
       throw new Error('Private version does not have a private key');
 
     const query = format('INSERT INTO versions (packageId, version, hash, isPublic, isStored, privateKey, loc, uploadDate) VALUES (?, ?, UNHEX(?), ?, ?, ?, ?, ?);', [packageId, versionString, hash, accessConfig.isPublic, accessConfig.isStored, accessConfig.privateKey ?? null, loc, new Date()]);
-    await this._query(query);
+
+    const promises: Promise<unknown>[] = [this._query(query)];
+
+    for (const [relationId, relationVersion] of dependencies) {
+      const depRelation = this._addRelation('dependencies', packageId, versionString, relationId, relationVersion);
+      promises.push(depRelation);
+    }
+
+    for (const [relationId, relationVersion] of optionalDependencies) {
+      const optDepRelation = this._addRelation('optional_dependencies', packageId, versionString, relationId, relationVersion);
+      promises.push(optDepRelation);
+    }
+
+    for (const [relationId, relationVersion] of incompatibilities) {
+      const incompRelation = this._addRelation('incompatibilities', packageId, versionString, relationId, relationVersion);
+      promises.push(incompRelation);
+    }
+
+    await Promise.all(promises);
   }
 
   /**
@@ -274,6 +295,22 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
     const query = format('UPDATE packages SET description=? WHERE packageId=?;', [newDescription, packageId]);
     await this._query(query);
+  }
+  
+  /**
+   * Say that one package requires a relation to another. Such as one package may be dependent on another.
+   * 
+   * @async
+   * @param {string} tableName The name of the table of which to add the relation. NOT SANITIZED.
+   * @param {string} packageId The id of the package to add the relation for.
+   * @param {string} version The version of the package that has the relation.
+   * @param {string} relationId The id of the package which is in relation to this one
+   * @param {string} relationVersion The version selection string of the package in relation.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   */
+  private async _addRelation(tableName: string, packageId: string, version: string, relationId: string, relationVersion: string): Promise<unknown> {
+    const query = format(`INSERT INTO ${tableName} (packageId, version, relationId, relationVersion) VALUES (?, ?, ?, ?);`, [packageId, version, relationId, relationVersion]);
+    return this._query(query);
   }
 }
 

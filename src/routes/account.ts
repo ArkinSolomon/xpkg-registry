@@ -22,12 +22,12 @@ import packageDatabase from '../database/mysqlPackageDB.js';
 const route = Router();
 
 // TODO get rid of this route and have the client parse this data directly from their token
-route.post('/data', (req, res) => {
+route.get('/data', (req, res) => {
   const author = req.user as Author;
   return res.json({ id: author.id, name: author.name });
 });
 
-route.post('/changename', async (req, res) => {
+route.put('/changename', async (req, res) => {
   const author = req.user as Author;
   let { newName } = req.body as { newName: string; };
 
@@ -55,7 +55,7 @@ route.post('/changename', async (req, res) => {
   }
 });
 
-route.post('/packages', async (req, res) => {
+route.get('/packages', async (req, res) => {
   const author = req.user as Author;
   const data: (PackageData & { versions: (Omit<VersionData, 'uploadDate'> & { uploadDate: string; })[]; })[] = [];
 

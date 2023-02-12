@@ -31,7 +31,19 @@ Get the hash and location for a package with a specific version. The `packageId`
 
 ```JSON
 {
-  "loc": "https://s3.aws.org/bucket/url/thingy/whatever/",
-  "hash": "0x711CF6C58791CD9BFEE0320C1E0DF98DAEC1ACD698628080920525D8E7189398"
+  "dependencies": [
+    [
+      "arkin.dep2",
+      "*"
+    ],
+    [
+      "arkin.dep",
+      "*"
+    ]
+  ],
+  "hash": "9D5BE4AB4CD72FEF508B59CE0C530B0F293B63A894F7959F044A89F3E8400467",
+  "incompatibilities": [],
+  "loc": "https://xpkgregistrydev.s3.us-east-2.amazonaws.com/kGdUldPGyPjXMyzjPfqeBVnfwfAw1Z1s7LMgCiKqSRsdJpBuFOn7Ud0cQ3jq22aS",
+  "optionalDependencies": []
 }
 ```

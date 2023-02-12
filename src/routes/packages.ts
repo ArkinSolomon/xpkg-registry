@@ -55,17 +55,78 @@ route.get('/:packageId/:version', async (req, res) => {
   if (!version)
     return res.sendStatus(400);
 
-  const versionData = await packageDatabase.getVersionData(packageId, version);
+  try {
+    const versionData = await packageDatabase.getVersionData(packageId, version);
 
-  if (!versionData.isPublic)
+    if (!versionData.isPublic)
+      return res.sendStatus(404);
+
+    res
+      .status(200)
+      .json({
+        loc: versionData.loc,
+        hash: versionData.hash,
+        dependencies: versionData.dependencies,
+        optionalDependencies: versionData.optionalDependencies,
+        incompatibilities: versionData.incompatibilities
+      });
+  } catch {
     return res.sendStatus(404);
+  }
+});
 
-  res
-    .status(200)
-    .json({
-      loc: versionData.loc,
-      hash: versionData.hash
-    });
+
+route.put('/description', async (req, res) => {
+  const author = req.user as Author;
+
+  if (!req.body.newDescription)
+    return res
+      .status(400)
+      .send('no_desc');
+
+  if (!req.body.packageId)
+    return res
+      .status(400)
+      .send('no_id');
+
+  let packageId, newDescription;
+  try {
+    checkType(req.body.packageId, 'string');
+    checkType(req.body.newDescription, 'string');
+
+    packageId = req.body.packageId.trim().toLowerCase();
+    newDescription = req.body.newDescription.trim();
+  } catch (e) {
+    return res
+      .status(400)
+      .send('invalid_type');
+  }
+
+  if (newDescription.length < 10)
+    return res
+      .status(400)
+      .send('short_desc');
+  else if (newDescription.length > 8192)
+    return res
+      .status(400)
+      .send('long_desc');
+
+  try {
+
+    // We want to make sure they're updating the description for a package that they own
+    if (!(await author.hasPackage(packageId)))
+      return res.sendStatus(403);
+
+    await packageDatabase.updateDescription(packageId, newDescription);
+
+    res.sendStatus(204);
+
+    const { packageName } = await packageDatabase.getPackageData(packageId);
+    author.sendEmail(`X-Pkg: '${packageName}' Description updated`, `Description updated for the package '${packageName}' (${packageId}).`);
+  } catch (e) {
+    console.error(e);
+    res.sendStatus(500);
+  }
 });
 
 route.post('/new', upload.single('file'), async (req, res) => {
@@ -278,59 +339,6 @@ route.post('/new', upload.single('file'), async (req, res) => {
   }
 });
 
-route.put('/description', async (req, res) => {
-  const author = req.user as Author;
-
-  if (!req.body.newDescription)
-    return res
-      .status(400)
-      .send('no_desc');
-
-  if (!req.body.packageId)
-    return res
-      .status(400)
-      .send('no_id');
-
-  let packageId, newDescription;
-  try {
-    checkType(req.body.packageId, 'string');
-    checkType(req.body.newDescription, 'string');
-
-    packageId = req.body.packageId.trim().toLowerCase();
-    newDescription = req.body.newDescription.trim();
-  } catch (e) {
-    return res
-      .status(400)
-      .send('invalid_type');
-  }
-
-  if (newDescription.length < 10)
-    return res
-      .status(400)
-      .send('short_desc');
-  else if (newDescription.length > 8192)
-    return res
-      .status(400)
-      .send('long_desc');
-
-  try {
-
-    // We want to make sure they're updating the description for a package that they own
-    if (!(await author.hasPackage(packageId)))
-      return res.sendStatus(403);
-
-    await packageDatabase.updateDescription(packageId, newDescription);
-
-    res.sendStatus(204);
-
-    const { packageName } = await packageDatabase.getPackageData(packageId);
-    author.sendEmail(`X-Pkg: '${packageName}' Description updated`, `Description updated for the package '${packageName}' (${packageId}).`);
-  } catch (e) {
-    console.error(e);
-    res.sendStatus(500);
-  }
-});
-
 route.post('/newversion', upload.single('file'), async (req, res) => {
   const author = req.user as Author;
   const file = req.file;
@@ -451,7 +459,6 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
     
   // Upload the package and add it to the database
   try {
-    console.log('uploading');
     const fileBuffer = await fsProm.readFile(outFile);
     const hashSum = crypto.createHash('sha256');
     hashSum.update(fileBuffer);

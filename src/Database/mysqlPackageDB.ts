@@ -12,6 +12,19 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
+
+/**
+ * A piece of data returned from relationship queries (dependencies, optional dependencies, or incompatibilities)
+ * 
+ * @typedef {Object} MysqlRelationData
+ * @property {string} relationId The id of the package that is in relation.
+ * @property {string} relationVersion The version of the package that is in relation.
+ */
+type MysqlRelationData = {
+  relationId: string;
+  relationVersion: string;
+}
+
 import Author from '../author.js';
 import MysqlDB from './mysqlDB.js';
 import PackageDatabase, { PackageData, PackageType, VersionData } from './packageDatabase.js';
@@ -185,16 +198,32 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
     if (typeof version !== 'undefined') {
       const versionString = versionStr(version);
+
       const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
-      const data = await this._query(query);
+      const dependencyQuery = format('SELECT relationId, relationVersion FROM dependencies WHERE packageId=? AND version=?;', [packageId, versionString]);
+      const optionalDependencyQuery = format('SELECT relationId, relationVersion FROM optional_dependencies WHERE packageId=? AND version=?;', [packageId, versionString]);
+      const incompatibilityQuery = format('SELECT relationId, relationVersion FROM incompatibilities WHERE packageId=? AND version=?;', [packageId, versionString]);
+
+      const [data, dependencies, optionalDependencies, incompatibilities]: [(VersionData & { 'HEX(hash)': string | undefined; })[], MysqlRelationData[], MysqlRelationData[], MysqlRelationData[]] = await Promise.all([
+        this._query(query),
+        this._query(dependencyQuery),
+        this._query(optionalDependencyQuery),
+        this._query(incompatibilityQuery)
+      ]);
 
       if (data.length === 0)
         throw new NoSuchPackageError(packageId, versionString);
 
       // Convert 'HEX(hash)' to hash
-      data[0].hash = data[0]['HEX(hash)'];
+      data[0].hash = data[0]['HEX(hash)'] as string;
       delete data[0]['HEX(hash)'];
-      return data[0] as VersionData;
+      
+      const versionData = data[0] as VersionData;
+      versionData.dependencies = dependencies.map(d => [d.relationId, d.relationVersion]);
+      versionData.optionalDependencies = optionalDependencies.map(d => [d.relationId, d.relationVersion]);
+      versionData.incompatibilities = incompatibilities.map(d => [d.relationId, d.relationVersion]);
+
+      return versionData;
     } else {
       const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
@@ -203,8 +232,23 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
       if (data.length === 0)
         throw new NoSuchPackageError(packageId);
 
-      data.forEach((version: VersionData & { 'HEX(hash)': string | undefined }) => {
+      data.forEach(async (version: VersionData & { 'HEX(hash)': string | undefined; }) => {
         version.hash = version['HEX(hash)'] as string;
+
+        const dependencyQuery = format('SELECT relationId, relationVersion FROM dependencies WHERE packageId=? AND version=?;', [packageId, version.version]);
+        const optionalDependencyQuery = format('SELECT relationId, relationVersion FROM optional_dependencies WHERE packageId=? AND version=?;', [packageId, version.version]);
+        const incompatibilityQuery = format('SELECT relationId, relationVersion FROM incompatibilities WHERE packageId=? AND version=?;', [packageId, version.version]);
+
+        const [dependencies, optionalDependencies, incompatibilities]: [MysqlRelationData[], MysqlRelationData[], MysqlRelationData[]] = await Promise.all([
+          this._query(dependencyQuery),
+          this._query(optionalDependencyQuery),
+          this._query(incompatibilityQuery)
+        ]);
+
+        version.dependencies = dependencies.map(d => [d.relationId, d.relationVersion]);
+        version.optionalDependencies = optionalDependencies.map(d => [d.relationId, d.relationVersion]);
+        version.incompatibilities = incompatibilities.map(d => [d.relationId, d.relationVersion]);
+        
         delete version['HEX(hash)'];
       });
 

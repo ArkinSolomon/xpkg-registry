@@ -26,8 +26,9 @@ import Author from '../author.js';
 import * as validators from '../util/validators.js';
 import isVersionValid, { Version, versionStr } from '../util/version.js';
 import fileProcessor from '../util/fileProcessor.js';
-import packageDatabase from '../database/mysqlPackageDB.js';
 import { PackageType } from '../database/packageDatabase.js';
+
+import { packageDatabase } from '../database/databases.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -479,7 +480,7 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
       privateKey: !isPublic && isStored ? await privateKeyNanoId(32) : void (0)
     }, dependencies, optionalDependencies, incompatibilities);
 
-    author.sendEmail(`X-Pkg: '${packageName}' new version uploaded`, `Your package '${packageName}' (${packageId}) had a new version added to it.\n\nNew version: ${versionStr(version)}\nChecksum: ${hash}`);
+    author.sendEmail(`X-Pkg: '${packageName}' new version uploaded`, `Your package '${packageName}' (${packageId}) had a new version added to it.\n\nNew version: ${versionStr(version)}\nChecksum: ${hash.toUpperCase()}`);
     
     return res.sendStatus(204);
   } catch (e) {

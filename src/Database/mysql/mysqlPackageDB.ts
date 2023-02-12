@@ -25,13 +25,13 @@ type MysqlRelationData = {
   relationVersion: string;
 }
 
-import Author from '../author.js';
+import Author from '../../author.js';
 import MysqlDB from './mysqlDB.js';
-import PackageDatabase, { PackageData, PackageType, VersionData } from './packageDatabase.js';
+import PackageDatabase, { PackageData, PackageType, VersionData } from '../packageDatabase.js';
 import { format } from 'mysql2';
-import { versionStr, Version } from '../util/version.js';
-import InvalidPackageError from '../errors/invalidPackageError.js';
-import NoSuchPackageError from '../errors/noSuchPackageError.js';
+import { versionStr, Version } from '../../util/version.js';
+import InvalidPackageError from '../../errors/invalidPackageError.js';
+import NoSuchPackageError from '../../errors/noSuchPackageError.js';
 
 /**
  * Package database implemented using MySQL.
@@ -84,7 +84,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * @param {[string][string][]} [optionalDependencies] The optional dependencies of the version.
    * @param {[string][string][]} [incompatibilities] The incompatibilities of the version.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
-   * @throws {InvalidPackageError} Error thrown if the access config is invalid.
+   * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
   async addPackageVersion(packageId: string, version: Version, hash: string, loc: string, accessConfig: {
     isPublic: boolean;
@@ -100,8 +100,12 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
       throw new InvalidPackageError('published_private_version');
 
     if (!accessConfig.isPublic && accessConfig.isStored && !accessConfig.privateKey )
-      throw new Error('Private version does not have a private key');
+      throw new InvalidPackageError('no_private_key');
 
+    const packageExists = await packageDatabase.packageIdExists(packageId);
+    if (!packageExists)
+      throw new NoSuchPackageError(packageId);
+      
     const query = format('INSERT INTO versions (packageId, version, hash, isPublic, isStored, privateKey, loc, uploadDate) VALUES (?, ?, UNHEX(?), ?, ?, ?, ?, ?);', [packageId, versionString, hash, accessConfig.isPublic, accessConfig.isStored, accessConfig.privateKey ?? null, loc, new Date()]);
 
     const promises: Promise<unknown>[] = [this._query(query)];
@@ -328,17 +332,26 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * Update the description for a package.
    * 
    * @async
-   * @name PackageDatabase#updateDescription
    * @param {string} packageId The id of the package which we're changing the description of.
    * @param {string} newDescription The new description of the package.
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id.
    */
   async updateDescription(packageId: string, newDescription: string): Promise<void> {
     packageId = packageId.trim().toLowerCase();
     newDescription = newDescription.trim();
 
     const query = format('UPDATE packages SET description=? WHERE packageId=?;', [newDescription, packageId]);
-    await this._query(query);
+
+    // Can't figure out how to configure no-unused-vars to ignore just underscores
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [_, exists] = await Promise.all([
+      this._query(query),
+      this.packageIdExists(packageId)
+    ]);
+    
+    if (!exists)
+      throw new NoSuchPackageError(packageId);
   }
   
   /**

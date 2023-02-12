@@ -30,7 +30,7 @@ import { Router } from 'express';
 import * as validators from '../util/validators.js';
 import Author from '../author.js';
 import NoSuchAccountError from '../errors/noSuchAccountError.js';
-import authorDatabase from '../database/mysqlAuthorDB.js';
+import { authorDatabase } from '../database/databases.js';
 
 const route = Router();
 

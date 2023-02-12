@@ -27,7 +27,7 @@ type queryCallback = (err: Error | null, data: any[]) => void;
 import mysql from 'mysql2';
 
 /**
- * Skeleton class for using mysql.
+ * Skeleton class for databases using MySQL.
  * 
  * @abstract
  */

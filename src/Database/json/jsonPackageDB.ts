@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2022-2023. Arkin Solomon.
+ * Copyright (c) 2023. Arkin Solomon.
  * 
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -12,87 +12,41 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
-import Author from '../author.js';
-import { Version } from '../util/version.js';
 
 /**
- * Enumeration of all possible package types.
+ * Internal package data that is not accessible from outside of this interface.
  * 
- * @name PackageType
- * @enum {string}
+ * @typedef {Object} InternalPackageData 
+ * @param {VersionData[]} versions All of the versions of the package.
+ * @param {number} versions[].uploadDate The upload date of the package as a millisecond unix timestamp.
  */
-export enum PackageType {
-  Aircraft = 'aircraft',
-  Executable = 'executable',
-  Scenery = 'scenery',
-  Plugin = 'plugin',
-  Livery = 'livery',
-  Other = 'other'
-}
-
-/**
- * The data for a single package which is sent to the client.
- * 
- * @typedef {Object} PackageData
- * @property {string} packageId The identifier of the package.
- * @property {string} packageName The name of the package.
- * @property {string} authorId The id of the author that uploaded the package.
- * @property {string} authorName The name of the author that uploaded the package.
- * @property {string} description The description of the package.
- * @property {PackageType} packageType The type of the package.
- */
-export type PackageData = {
-  packageId: string;
-  packageName: string;
-  authorId: string;
-  authorName: string;
-  description: string;
-  packageType: PackageType;
+type InternalPackageData = {
+  versions: (Omit<VersionData, 'uploadDate'> & { uploadDate: number; })[];
 };
 
-/**
- * The data for a specific version of a package.
- * 
- * @typedef {Object} VersionData
- * @property {string} packageId The identifier of the package.
- * @property {string} version The semantic version string of the package.
- * @property {string} hash The hexadecimal hash of the package files.
- * @property {boolean} isPublic True if the version is public.
- * @property {boolean} isStored True if the version is stored.
- * @property {string} loc The URL from which to download the package version.
- * @property {number} installs The number of installs for this version.
- * @property {Date} uploadDate The upload time of the package.
- * @property {[string][string][]} dependencies The dependencies of the version.
- * @property {[string][string][]} optionalDependencies The optional dependencies of the version.
- * @property {[string][string][]} incompatibilities The incompatibilities of the version.
- */
-export type VersionData = {
-  packageId: string;
-  version: string;
-  hash: string;
-  isPublic: boolean;
-  isStored: boolean;
-  loc: string;
-  privateKey: string;
-  installs: number;
-  uploadDate: Date;
-  dependencies: [string, string][];
-  optionalDependencies: [string, string][];
-  incompatibilities: [string, string][];
-};
+import Author from '../../author.js';
+import InvalidPackageError from '../../errors/invalidPackageError.js';
+import NoSuchPackageError from '../../errors/noSuchPackageError.js';
+import { Version, versionStr } from '../../util/version.js';
+import PackageDatabase, { PackageData, PackageType, VersionData } from '../packageDatabase.js';
+import JsonDB from './jsonDB.js';
 
 /**
- * Interface for all databses that deal with packages.
- * 
- * @interface PackageDatabase
+ * Package database implemented in JSON. Again, not for production use.
  */
-interface PackageDatabase {
+class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements PackageDatabase {
+  
+  /**
+   * Create a new package database.
+   */
+  constructor() {
+    super('package');
+  }
 
   /**
    * Add a new package to the database.
    * 
    * @async 
-   * @name PackageDatabase#insertPackage
    * @param {string} packageId The package identifier of the new package.
    * @param {string} packageName The name of the new package.
    * @param {Author} author The author that is creating the package.
@@ -100,13 +54,26 @@ interface PackageDatabase {
    * @param {PackageType} packageType The type of the package that is being created.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    */
-  addPackage(packageId: string, packageName: string, author: Author, description: string, packageType: PackageType): Promise<void>;
+  async addPackage(packageId: string, packageName: string, author: Author, description: string, packageType: PackageType): Promise<void> {
+    packageId = packageId.trim().toLowerCase();
+
+    this._data.push({
+      packageId,
+      packageName,
+      authorId: author.id,
+      authorName: author.name,
+      description,
+      packageType,
+      versions: []
+    });
+
+    return this._save();
+  }
 
   /**
    * Create a new version for a package. If both published and private are false, the package is assumed to registered only.
    * 
    * @async
-   * @name PackageDatabase#insertVersion
    * @param {string} packageId The package identifier of the package that this version is for.
    * @param {Version} version The version string of the version.
    * @param {string} hash The hash of the package as a hexadecimal string.
@@ -122,120 +89,214 @@ interface PackageDatabase {
    * @throws {InvalidPackageError} Error thrown if the access config is invalid.
    * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
-  addPackageVersion(packageId: string, version: Version, hash: string, loc: string, accessConfig: {
+  async addPackageVersion(packageId: string, version: Version, hash: string, loc: string, accessConfig: {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
-  }, dependencies: [string, string][], optionalDependencies: [string, string][], incompatibilities: [string, string][]): Promise<void>;
+  }, dependencies: [string, string][], optionalDependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
+    packageId = packageId.trim().toLowerCase();
+    hash = hash.toUpperCase();
+    const versionString = versionStr(version);
+
+    if (accessConfig.isPublic && !accessConfig.isStored)
+      throw new InvalidPackageError('published_private_version');
+
+    if (!accessConfig.isPublic && accessConfig.isStored && !accessConfig.privateKey )
+      throw new InvalidPackageError('no_private_key');
+
+    const versionData: InternalPackageData['versions'][number] = {
+      packageId,
+      version: versionString,
+      hash,
+      loc,
+      isPublic: accessConfig.isPublic,
+      isStored: accessConfig.isStored,
+      installs: 0,
+      uploadDate: Date.now(),
+      privateKey: accessConfig.privateKey || '',
+      dependencies,
+      optionalDependencies,
+      incompatibilities
+    };
+
+    const pkg = this._data.find(p => p.packageId === packageId);
+
+    if (!pkg)
+      throw new NoSuchPackageError(packageId);
+
+    pkg.versions.push(versionData);
+    return this._save();
+  }
 
   /**
    * Get the package data for a specific package.
    * 
    * @async 
-   * @name PackageDatabase#getPackageData
    * @param {string} packageId The identifier of the package to get the data for.
    * @returns {Promise<PackageData>} A promise which resolves to the data of the specified package.
    * @throws {NoSuchPackageError} Error throws if trying to get data for a non-existent package.
    */
-  getPackageData(packageId: string): Promise<PackageData>;
+  async getPackageData(packageId: string): Promise<PackageData>;
 
   /**
    * Get all package data for all packages.
    * 
    * @async
-   * @name PackageDatabase#getPackageData
    * @returns {Promise<PackageData[]>} The data of all of the packages on the registry. 
    */
-  getPackageData(): Promise<PackageData[]>;
+  async getPackageData(): Promise<PackageData[]>;
+
+  async getPackageData(packageId?: string): Promise<PackageData | PackageData[]> {
+    if (typeof packageId !== 'undefined') {
+      const pkg = this._data.find(p => p.packageId === packageId);
+
+      if (!pkg)
+        throw new NoSuchPackageError(packageId);
+      
+      return JSON.parse(JSON.stringify(pkg));
+    } else {
+      return JSON.parse(JSON.stringify(this._data));
+    }
+  }
 
   /**
    * Get all packages by a certain author
    * 
    * @async
-   * @name PackageDatabase#getAuthorPackages
    * @param {string} authorId The id of the author to get the data of.
    * @returns {Promise<PackageData[]>} A promise which resolves to the data of all packages created by the provided author.
    */
-  getAuthorPackages(authorId: string): Promise<PackageData[]>;
+  async getAuthorPackages(authorId: string): Promise<PackageData[]> {
+    const packages = this._data.find(p => p.authorId === authorId);
+
+    return JSON.parse(JSON.stringify(packages));
+  }
 
   /**
    * Get the data for a specific package.
    * 
    * @async
-   * @name PackageDatabase#getVersionData
    * @param {string} packageId The id of the package to get the version data for.
    * @param {Version} version The version string of the package to get the data for.
    * @returns {Promise<VersionData>} A promise which resolves to the version data for the specified version of the requested package.
    * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
    */
-  getVersionData(packageId: string, version: Version): Promise<VersionData>;
+  async getVersionData(packageId: string, version: Version): Promise<VersionData>;
 
   /**
    * Get the data for all versions of a package.
    * 
    * @async
-   * @name PackageDatabase#getVersionData
    * @param {string} packageId The id of the package to get the version data for.
    * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package.
    * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
    */
-  getVersionData(packageId: string): Promise<VersionData[]>;
+  async getVersionData(packageId: string): Promise<VersionData[]>;
 
+  async getVersionData(packageId: string, version?: Version): Promise<VersionData | VersionData[]> {
+    packageId = packageId.trim().toLowerCase();
+    const pkg = this._data.find(p => p.packageId == packageId);
+
+    if (!pkg)
+      throw new NoSuchPackageError(packageId);
+
+    if (typeof version !== 'undefined') {
+      const versionString = versionStr(version);
+
+      const vData = pkg.versions.find(v => v.version === versionString);
+      return JSON.parse(JSON.stringify(vData));
+    } else
+      return JSON.parse(JSON.stringify(pkg.versions));   
+  }
+  
   /**
    * Check if a package exists with a given id.
    * 
    * @async
-   * @name PackageDatabase#packageIdExists
    * @param {string} packageId The id to check for existence.
    * @returns {Promise<boolean>} A promise which resolves to true if the package id is already in use.
    */
-  packageIdExists(packageId: string): Promise<boolean>;
+  async packageIdExists(packageId: string): Promise<boolean> {
+    packageId = packageId.trim().toLowerCase();
+    return !!this._data.find(p => p.packageId === packageId);
+  }
 
   /**
    * Check if the given package has the given version.
    * 
    * @async
-   * @name PackageDatabase#versionExists
    * @param {string} packageId The package id to check for version existence.
    * @param {Version} version The version to check for existence.
    * @returns {Promise<boolean>} A promise which resolves to true if the package already has the version.
    * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
-  versionExists(packageId: string, version: Version): Promise<boolean>;
+  async versionExists(packageId: string, version: Version): Promise<boolean> {
+    packageId = packageId.trim().toLowerCase();
+
+    const pkg = this._data.find(p => p.packageId === packageId);
+
+    if (!pkg)
+      throw new NoSuchPackageError(packageId);
+
+    const versionString = versionStr(version);
+    return !!pkg.versions.find(v => v.version === versionString);
+  }
 
   /**
    * Check if a package exists with a given name.
    * 
    * @async
-   * @name PackageDatabase#packageNameExists
    * @param {string} packageName The package name to check for
    * @returns {Promise<boolean>} A promise which resolves to true if the name is already in use.
    */
-  packageNameExists(packageName: string): Promise<boolean>;
+  async packageNameExists(packageName: string): Promise<boolean> {
+    packageName = packageName.trim().toLowerCase();
+    return !!this._data.find(p => p.packageName.trim().toLowerCase() === packageName);
+  }
 
   /**
    * Update any packages that was made by the author with the id and change the name.
    * 
    * @async
-   * @name PackageDatabase#updateAuthorName
    * @param {string} authorId The id of the author to change the name of.
    * @param {string} newName The new name of the author.
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
    */
-  updateAuthorName(authorId: string, newName: string): Promise<void>;
+  async updateAuthorName(authorId: string, newName: string): Promise<void> {
+    authorId = authorId.trim();
+    newName = newName.trim();
+
+    // We don't use getAuthorPackages() since it returns a copy
+    const authorPackages = this._data.filter(p => p.authorId === authorId);
+    for (const pkg of authorPackages)
+      pkg.authorName = newName;
+
+    return this._save();
+  }
 
   /**
    * Update the description for a package.
    * 
    * @async
-   * @name PackageDatabase#updateDescription
    * @param {string} packageId The id of the package which we're changing the description of.
    * @param {string} newDescription The new description of the package.
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
    * @throws {NoSuchPackageError} Error thrown if no package exists with the given id.
    */
-  updateDescription(packageId: string, newDescription: string): Promise<void>;
+  async updateDescription(packageId: string, newDescription: string): Promise<void> {
+    packageId = packageId.trim().toLowerCase();
+    newDescription = newDescription.trim();
+
+    const pkg = this._data.find(p => p.packageId === packageId);
+    
+    if (!pkg)
+      throw new NoSuchPackageError(packageId);
+
+    pkg.description = newDescription;
+    
+    return this._save();
+  }
 }
 
-// We have to seperate the export because EsLint gets mad
-export default PackageDatabase;
+const packageDatabase = new JsonPackageDB();
+export default packageDatabase;

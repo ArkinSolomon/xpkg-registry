@@ -32,10 +32,10 @@ const storeFile = path.resolve('./data.json');
 import packages from './routes/packages.js';
 import auth from './routes/auth.js';
 import account from './routes/account.js';
-import packageDatabase from './database/mysqlPackageDB.js'; 
+
+import { authorDatabase, packageDatabase } from './database/databases.js';
 
 import { PackageData } from './database/packageDatabase.js';
-import authorDatabase from './database/mysqlAuthorDB.js';
 import Author, { AuthTokenPayload } from './author.js';
 
 // Update this with all routes that require tokens

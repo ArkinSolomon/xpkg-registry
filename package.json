@@ -7,7 +7,7 @@
   "scripts": {
     "build": "npx tsc",
     "start": "npm run build && node -r dotenv/config .",
-    "lint": "npx eslint src/**"
+    "lint": "npx eslint src/** --fix"
   },
   "author": "Arkin Solomon",
   "license": "Apache-2.0",

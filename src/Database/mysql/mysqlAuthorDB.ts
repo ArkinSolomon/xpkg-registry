@@ -14,10 +14,10 @@
  */
 
 import { nanoid } from 'nanoid/async';
-import AuthorDatabase, { AuthorData } from './authorDatabase.js';
+import AuthorDatabase, { AuthorData } from '../authorDatabase.js';
 import MysqlDB from './mysqlDB.js';
 import { format } from 'mysql2';
-import NoSuchAccountError from '../errors/noSuchAccountError.js';
+import NoSuchAccountError from '../../errors/noSuchAccountError.js';
 
 /**
  * Author database implemented in MySQL.
@@ -34,7 +34,7 @@ class MysqlAuthorDB extends MysqlDB implements AuthorDatabase {
   }
 
   /**
-   * Create a new author. Also initialize session randomly.
+   * Create a new author. Also initialize session randomly, and creation date to now(-ish).
    * 
    * @async
    * @param {string} authorId The id of the author to create.
@@ -118,14 +118,22 @@ class MysqlAuthorDB extends MysqlDB implements AuthorDatabase {
    * @param {string} authorId The id of the author who is changing their name.
    * @param {string} newName The new name of the author.
    * @returns {Promise<void>} A promise which resolves when the author's name is changed successfully.
+   * @throws {NoSuchAccountError} Error thrown if no account exists with the given id.
    */
   async updateAuthorName(authorId: string, newName: string): Promise<void> {
     authorId = authorId.trim().toLowerCase();
     newName = newName.trim();
     const checkName = newName.toLowerCase();
-    
-    const query = format('UPDATE authors SET authorName=?, checkName=?, lastChange=? WHERE authorId=?;', [newName, checkName, new Date(), authorId]);
-    await this._query(query);
+
+    try {
+      const query = format('UPDATE authors SET authorName=?, checkName=?, lastChange=? WHERE authorId=?;', [newName, checkName, new Date(), authorId]);
+      await Promise.all([
+        this._query(query),
+        this.getAuthor(authorId), // We run this in parallel, since update does nothing if it fails and there is no author
+      ]);
+    } catch {
+      throw new NoSuchAccountError('authorId', authorId);
+    }
   }
 
   /**
@@ -135,13 +143,21 @@ class MysqlAuthorDB extends MysqlDB implements AuthorDatabase {
    * @param {string} authorId The id of the author who's session is being updated.
    * @param {string} newSession The new session id of the author.
    * @returns {Promise<void>} A promise which resolves when the author's session is successfully updated.
+   * @throws {NoSuchAccountError} Error thrown if no account exists with the given id.
    */
   async updateAuthorSession(authorId: string, newSession: string): Promise<void> {
     authorId = authorId.trim().toLowerCase();
     newSession = newSession.trim();
 
-    const query = format('UPDATE authors SET session=? WHERE authorId=?;', [newSession, authorId]);
-    await this._query(query);
+    try {
+      const query = format('UPDATE authors SET session=? WHERE authorId=?;', [newSession, authorId]);
+      await Promise.all([
+        this._query(query),
+        this.getAuthor(authorId), // See updateAuthorName
+      ]);
+    } catch {
+      throw new NoSuchAccountError('authorId', authorId);
+    }
   }
 
   /**

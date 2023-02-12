@@ -39,13 +39,12 @@ export type AccountValidationPayload = {
 
 import { AuthorData } from './database/authorDatabase.js';
 import { PackageData } from './database/packageDatabase.js';
-import packageDatabase from './database/mysqlPackageDB.js';
+import { authorDatabase, packageDatabase } from './database/databases.js';
 import email from './util/email.js';
 import { nanoid } from 'nanoid/async';
 import * as jwtPromise from './util/jwtPromise.js';
 import bcrypt from 'bcrypt';
 import NoSuchAccountError from './errors/noSuchAccountError.js';
-import authorDatabase from './database/mysqlAuthorDB.js';
 
 // When the auth token should expire ()
 const expiresIn = 2.592e9;

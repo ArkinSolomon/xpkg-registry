@@ -17,7 +17,7 @@ import { Router } from 'express';
 import { validateName } from '../util/validators.js';
 import { PackageData, VersionData } from '../database/packageDatabase.js';
 import Author from '../author.js';
-import packageDatabase from '../database/mysqlPackageDB.js';
+import { packageDatabase } from '../database/databases.js';
 
 const route = Router();
 

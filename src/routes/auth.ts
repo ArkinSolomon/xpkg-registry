@@ -28,9 +28,10 @@ export type PasswordResetPayload = {
 import bcrypt from 'bcrypt';
 import { Router } from 'express';
 import * as validators from '../util/validators.js';
-import Author from '../author.js';
+import Author, { AccountValidationPayload } from '../author.js';
 import NoSuchAccountError from '../errors/noSuchAccountError.js';
 import { authorDatabase } from '../database/databases.js';
+import { decode } from '../util/jwtPromise.js';
 
 const route = Router();
 
@@ -92,11 +93,32 @@ route.post('/create', async (req, res) => {
       author.createAuthToken(),
       author.createVerifyToken()
     ]);
-    author.sendEmail('Welcome to X-Pkg', `Welcome to X-Pkg! To start uploading packages or resources to the portal, you need to verify your email first:  http://localhost:5020/auth/verify/${verificationToken} (this link expires in 24 hours)`);
+    author.sendEmail('Welcome to X-Pkg', `Welcome to X-Pkg! To start uploading packages or resources to the portal, you need to verify your email first:  http://localhost:3000/verify/${verificationToken} (this link expires in 24 hours)`);
     res.json({ token });
   } catch (e) {
     console.error(e);
     return res.sendStatus(500);
+  }
+});
+
+route.post('/verify/:verificationToken', async (req, res) => {
+  let id;
+  try {
+    const payload = await decode(req.params.verificationToken, process.env.EMAIL_VERIFY_SECRET as string) as AccountValidationPayload;
+    id = payload.id;
+  } catch {
+    return res.sendStatus(401);
+  }
+
+  try {
+    const isVerified = await authorDatabase.isVerified(id);
+    if (isVerified)
+      return res.sendStatus(403);
+
+    await authorDatabase.verify(id);
+    res.sendStatus(204);
+  } catch {
+    res.sendStatus(500);
   }
 });
 

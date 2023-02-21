@@ -57,8 +57,8 @@ class JsonAuthorDB extends JsonDB<AuthorData & InternalAuthorData> implements Au
   async createAuthor(authorId: string, authorName: string, authorEmail: string, passwordHash: string): Promise<void> {
     this._data.push({
       authorId,
-      authorEmail: authorEmail.toLowerCase(),
-      authorName,
+      authorEmail: authorEmail.trim().toLowerCase(),
+      authorName: authorName.trim(),
       hash: passwordHash,
       verified: false,
       creationDate: Date.now(),
@@ -164,7 +164,7 @@ class JsonAuthorDB extends JsonDB<AuthorData & InternalAuthorData> implements Au
    * @returns {Promise<boolean>} A promise which resolves to true if the email is already in use.
    */
   async emailExists(email: string): Promise<boolean> {
-    email = email.toLowerCase();
+    email = email.trim().toLowerCase();
     return !!this._data.find(a => a.authorEmail === email);
   }
 
@@ -177,8 +177,45 @@ class JsonAuthorDB extends JsonDB<AuthorData & InternalAuthorData> implements Au
    * @returns {Promise<boolean>} A promise which resolves to true if the name is already in use.
    */
   async nameExists(authorName: string): Promise<boolean> {
-    authorName = authorName.toLowerCase();
-    return !!this._data.find(a => a.authorName === authorName);
+    authorName = authorName.trim().toLowerCase();
+    return !!this._data.find(a => a.authorName.toLowerCase() === authorName);
+  }
+
+  /**
+   * Change an authors verification status to true.
+   * 
+   * @async
+   * @param {string} authorId The id of the author to verfiy.
+   * @returns {Promise<void>} A promise which resolves when the operation completes successfully.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id.
+   */
+  async verify(authorId: string): Promise<void> {
+    authorId = authorId.trim();
+    
+    const author = this._data.find(a => a.authorId === authorId); 
+    if (!author)
+      throw new NoSuchAccountError('authorId', authorId);
+
+    author.verified = true;
+    return this._save();
+  }
+
+  /**
+    * Check if an author's account is verified. Does not care if the author is already verified.
+    * 
+    * @async
+    * @param {string} authorId The id of the author to check for verification.
+    * @return {Promise<boolean>} A promise which resolves to true if the author is verified, or false otherwise.
+    * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+    */
+  async isVerified(authorId: string): Promise<boolean> {
+    authorId = authorId.trim();
+    
+    const author = this._data.find(a => a.authorId === authorId); 
+    if (!author)
+      throw new NoSuchAccountError('authorId', authorId);
+    
+    return author.verified;
   }
 }
 

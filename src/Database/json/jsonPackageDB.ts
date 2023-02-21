@@ -167,7 +167,7 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
    * @returns {Promise<PackageData[]>} A promise which resolves to the data of all packages created by the provided author.
    */
   async getAuthorPackages(authorId: string): Promise<PackageData[]> {
-    const packages = this._data.find(p => p.authorId === authorId);
+    const packages = this._data.filter(p => p.authorId === authorId);
 
     return JSON.parse(JSON.stringify(packages));
   }
@@ -199,14 +199,22 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
 
     if (!pkg)
       throw new NoSuchPackageError(packageId);
-
+    
     if (typeof version !== 'undefined') {
       const versionString = versionStr(version);
 
       const vData = pkg.versions.find(v => v.version === versionString);
+      const retData = JSON.parse(JSON.stringify(vData)) as unknown as VersionData;
+      retData.uploadDate = new Date(vData?.uploadDate as number);
       return JSON.parse(JSON.stringify(vData));
-    } else
-      return JSON.parse(JSON.stringify(pkg.versions));   
+    } else {
+      const versions = pkg.versions.map(v => {
+        const newData = JSON.parse(JSON.stringify(v)) as VersionData;
+        newData.uploadDate = new Date(v.uploadDate);
+        return newData;
+      });
+      return versions;
+    }
   }
   
   /**

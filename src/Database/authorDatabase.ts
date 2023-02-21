@@ -127,6 +127,28 @@ interface AuthorDatabase {
    * @returns {Promise<boolean>} A promise which resolves to true if the name is already in use.
    */
   nameExists(authorName: string): Promise<boolean>;
+
+  /**
+   * Change an authors verification status to true.
+   * 
+   * @async
+   * @name AuthorDatabase#verify
+   * @param {string} authorId The id of the author to verfiy.
+   * @returns {Promise<void>} A promise which resolves when the operation completes successfully.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id.
+   */
+  verify(authorId: string): Promise<void>;
+
+  /**
+   * Check if an author's account is verified.
+   * 
+   * @async
+   * @name AuthorDatabase#isVerified
+   * @param {string} authorId The id of the author to check for verification.
+   * @return {Promise<boolean>} A promise which resolves to true if the author is verified, or false otherwise.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+   */
+  isVerified(authorId: string): Promise<boolean>;
 }
 
 // We have to seperate the export because EsLint gets mad

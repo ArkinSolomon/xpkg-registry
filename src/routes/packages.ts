@@ -388,7 +388,7 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
       .send('no_file');
 
   try {
-    const authorPackages = await packageDatabase.getAuthorPackages(author.id);
+    const authorPackages = await author.getPackages();
     const thisPackage = await authorPackages.find(d => d.packageId === packageId);
     if (!packageId || !thisPackage)
       return res

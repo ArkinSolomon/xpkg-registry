@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "npx tsc",
-    "start": "npm run build && node -r dotenv/config .",
+    "start": "npm run build && node --enable-source-maps -r dotenv/config .",
     "lint": "npx eslint src/** --fix"
   },
   "author": "Arkin Solomon",

@@ -193,6 +193,47 @@ class MysqlAuthorDB extends MysqlDB implements AuthorDatabase {
     const data = await this._query(query);
     return data.length > 0;
   }
+
+  /**
+   * Change an authors verification status to true.
+   * 
+   * @async
+   * @param {string} authorId The id of the author to verify.
+   * @returns {Promise<void>} A promise which resolves when the operation completes successfully.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id.
+   */
+  async verify(authorId: string): Promise<void> {
+    authorId = authorId.trim();
+  
+    const updateQuery = format('UPDATE authors SET verified=? WHERE authorId=?;', [true, authorId]);
+
+    // If this errors it will just be rethrown
+    const getAuthor = this.getAuthor(authorId);
+    await Promise.all([
+      this._query(updateQuery),
+      getAuthor
+    ]);
+  }
+
+  /**
+    * Check if an author's account is verified.
+    * 
+    * @async
+    * @param {string} authorId The id of the author to check for verification.
+    * @return {Promise<boolean>} A promise which resolves to true if the author is verified, or false otherwise.
+    * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+    */
+  async isVerified(authorId: string): Promise<boolean> {
+    authorId = authorId.trim();
+
+    const query = format('SELECT verified FROM authors WHERE authorId=?;', [authorId]);
+    const data = await this._query(query);
+
+    if (data.length != 0)
+      throw new NoSuchAccountError('authorId', authorId);
+
+    return data[0].verified;
+  }
 }
 
 const authorDatabase = new MysqlAuthorDB(25);

@@ -93,7 +93,8 @@ route.post('/create', async (req, res) => {
       author.createAuthToken(),
       author.createVerifyToken()
     ]);
-    author.sendEmail('Welcome to X-Pkg', `Welcome to X-Pkg! To start uploading packages or resources to the portal, you need to verify your email first:  http://localhost:3000/verify/${verificationToken} (this link expires in 24 hours)`);
+
+    author.sendEmail('Welcome to X-Pkg', `Welcome to X-Pkg! To start uploading packages or resources to the portal, you need to verify your email first:  http://localhost:3000/verify/${verificationToken} (this link expires in 24 hours).`);
     res.json({ token });
   } catch (e) {
     console.error(e);

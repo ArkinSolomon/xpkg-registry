@@ -21,10 +21,9 @@ import { packageDatabase } from '../database/databases.js';
 
 const route = Router();
 
-// TODO get rid of this route and have the client parse this data directly from their token
 route.get('/data', (req, res) => {
   const author = req.user as Author;
-  return res.json({ id: author.id, name: author.name });
+  return res.json({ id: author.id, name: author.name, isVerified: author.isVerified });
 });
 
 route.put('/changename', async (req, res) => {
@@ -81,6 +80,21 @@ route.get('/packages', async (req, res) => {
   } catch (e) {
     console.error(e);
     return res.sendStatus(500);
+  }
+});
+
+route.post('/reverify', async (req, res) => {
+  const author = req.user as Author;
+
+  if (author.isVerified)
+    return res.sendStatus(400);
+  
+  try {
+    const token = await author.createVerifyToken();
+    await author.sendEmail('X-Pkg Verification', `Click on this link to verify your account: http://localhost:3000/verify/${token} (this link expires in 24 hours).`);
+    res.sendStatus(204);
+  } catch {
+    res.sendStatus(500);
   }
 });
 

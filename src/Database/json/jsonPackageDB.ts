@@ -83,7 +83,6 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
    * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
    * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private and stored.
    * @param {[string][string][]} [dependencies] The dependencies of the version.
-   * @param {[string][string][]} [optionalDependencies] The optional dependencies of the version.
    * @param {[string][string][]} [incompatibilities] The incompatibilities of the version.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    * @throws {InvalidPackageError} Error thrown if the access config is invalid.
@@ -93,7 +92,7 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
-  }, dependencies: [string, string][], optionalDependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
+  }, dependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
     packageId = packageId.trim().toLowerCase();
     hash = hash.toUpperCase();
     const versionString = versionStr(version);
@@ -115,7 +114,6 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
       uploadDate: Date.now(),
       privateKey: accessConfig.privateKey || '',
       dependencies,
-      optionalDependencies,
       incompatibilities
     };
 

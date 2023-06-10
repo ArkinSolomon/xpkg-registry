@@ -34,7 +34,6 @@ import { PackageType } from '../database/packageDatabase.js';
  * @param {Version} packageVersion The version of the package version that the user provided.
  * @param {PackageType} packageType The type of the package that the user provided.
  * @param {[string, string][]} dependencies The list of dependencies of the package, the name then version selection string.
- * @param {[string, string][]} optionalDependencies The list of optional dependencies of the package, the name then version selection string.
  * @param {[string, string][]} incompatibilities The list of incompatibilites of the package, the name then version selection string.
  */
 export default async function processFile(
@@ -47,7 +46,6 @@ export default async function processFile(
   packageVersion: Version,
   packageType: PackageType,
   dependencies: [string, string][],
-  optionalDependencies: [string, string][],
   incompatibilities: [string, string][]
 ): Promise<void> {
   const files = await fs.readdir(file);
@@ -60,7 +58,7 @@ export default async function processFile(
     const subFolderName = files.find(fName => fName !== '__MACOSX');
     file = path.join(file, subFolderName as string);
     
-    return processFile(file, dest, authorId, authorName, packageName, packageId, packageVersion, packageType, dependencies, optionalDependencies, incompatibilities);
+    return processFile(file, dest, authorId, authorName, packageName, packageId, packageVersion, packageType, dependencies, incompatibilities);
   }
 
   if (!files.includes(packageId))
@@ -76,7 +74,6 @@ export default async function processFile(
     packageVersion: versionStr(packageVersion),
     authorId,
     dependencies,
-    optionalDependencies,
     incompatibilities
   };
 

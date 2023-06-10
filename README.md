@@ -44,6 +44,5 @@ Get the hash and location for a package with a specific version. The `packageId`
   "hash": "9D5BE4AB4CD72FEF508B59CE0C530B0F293B63A894F7959F044A89F3E8400467",
   "incompatibilities": [],
   "loc": "https://xpkgregistrydev.s3.us-east-2.amazonaws.com/kGdUldPGyPjXMyzjPfqeBVnfwfAw1Z1s7LMgCiKqSRsdJpBuFOn7Ud0cQ3jq22aS",
-  "optionalDependencies": []
 }
 ```

@@ -68,7 +68,6 @@ route.get('/:packageId/:version', async (req, res) => {
         loc: versionData.loc,
         hash: versionData.hash,
         dependencies: versionData.dependencies,
-        optionalDependencies: versionData.optionalDependencies,
         incompatibilities: versionData.incompatibilities
       });
   } catch {
@@ -297,7 +296,6 @@ route.post('/new', upload.single('file'), async (req, res) => {
       version,
       packageType,
       dependencies,
-      optionalDependencies,
       incompatibilities,
     );
   } catch (e) {
@@ -328,7 +326,7 @@ route.post('/new', upload.single('file'), async (req, res) => {
       packageDatabase.addPackageVersion(packageId, version, hash, isStored ? `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}` : 'NOT_STORED', {
         isPublic: isPublic,
         isStored: isStored
-      }, dependencies, optionalDependencies, incompatibilities)
+      }, dependencies, incompatibilities)
     ]);
 
     author.sendEmail(`X-Pkg: '${packageName}' published`, `Your package '${packageName}' (${packageId}) was successfully uploaded to the registry.\n\nInitial version: ${versionStr(version)}\nChecksum: ${hash}`);
@@ -448,7 +446,6 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
       version,
       packageType,
       dependencies,
-      optionalDependencies,
       incompatibilities,
     );
   } catch (e) {
@@ -478,7 +475,7 @@ route.post('/newversion', upload.single('file'), async (req, res) => {
       isPublic: isPublic,
       isStored: isStored,
       privateKey: !isPublic && isStored ? await privateKeyNanoId(32) : void (0)
-    }, dependencies, optionalDependencies, incompatibilities);
+    }, dependencies, incompatibilities);
 
     author.sendEmail(`X-Pkg: '${packageName}' new version uploaded`, `Your package '${packageName}' (${packageId}) had a new version added to it.\n\nNew version: ${versionStr(version)}\nChecksum: ${hash.toUpperCase()}`);
     

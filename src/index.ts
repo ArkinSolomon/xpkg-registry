@@ -21,11 +21,26 @@ import path from 'path';
 import * as jwtPromise from './util/jwtPromise.js';
 import bodyParser from 'body-parser';
 import cors from 'cors';
+import { pinoHttp } from 'pino-http';
+import logger from './logger.js';
+
+logger.info('X-Pkg registry server starting');
 
 const app = Express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
+app.use(pinoHttp({
+  logger,
+  serializers: {
+    req: req => ({
+      id: req.id,
+      method: req.method,
+      url: req.url,
+      remoteAddress: req.remoteAddress
+    })
+  }
+}));
 
 const storeFile = path.resolve('./data.json');
 
@@ -75,6 +90,8 @@ app.use(authRoutes, async (req, res, next) => {
     if (session !== expectedSession) {
       delete authSessionCache[id];
       delete authorCache[id];
+
+      logger.info(`Invalid session: ${session}`);
       throw null;
     }
     
@@ -88,6 +105,7 @@ app.use(authRoutes, async (req, res, next) => {
     req.user = author;
     next();
   } catch (_) {
+    logger.info(`Unauthorized login attempt from ${req.socket.remoteAddress}`);
     return res.sendStatus(401);
   }
 });
@@ -103,6 +121,7 @@ app.use('/account', account);
  * @returns {Promise<void>} A promise which resolves when the operation completes.
  */
 async function updateData(): Promise<void> {
+  logger.info('Updating package data');
   const data: (PackageData & { versions: string[]; })[] = [];
 
   const allPackageData = await packageDatabase.getPackageData();
@@ -120,11 +139,16 @@ async function updateData(): Promise<void> {
     data.push(newData);
   }
 
+  logger.info(`Package data updated, ${data.length} packages`);
   return fs.writeFile(storeFile, JSON.stringify({ data }), 'utf-8');
 }
 
 await updateData();
-setInterval(updateData, 60 * 1000);
-app.listen(process.env.port || 5020, () => {
-  console.log('Server started');
+const updateInterval = 60 * 1000;
+setInterval(updateData, updateInterval);
+logger.info(`Package data updating  every ${updateInterval}ms`);
+
+const port = process.env.port || 5020;
+app.listen(port, () => {
+  logger.info(`Server started, listening on port ${port}`);
 });

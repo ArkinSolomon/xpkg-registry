@@ -27,7 +27,7 @@ type MysqlRelationData = {
 
 import Author from '../../author.js';
 import MysqlDB from './mysqlDB.js';
-import PackageDatabase, { PackageData, PackageType, VersionData } from '../packageDatabase.js';
+import PackageDatabase, { PackageData, PackageType, VersionData, VersionStatus } from '../packageDatabase.js';
 import { format } from 'mysql2';
 import { versionStr, Version } from '../../util/version.js';
 import InvalidPackageError from '../../errors/invalidPackageError.js';
@@ -74,8 +74,6 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * @async
    * @param {string} packageId The package identifier of the package that this version is for.
    * @param {Version} version The version string of the version.
-   * @param {string} hash The hash of the package as a hexadecimal string.
-   * @param {string} loc The URL of the package from which to download.
    * @param {Object} accessConfig The access config of the package version.
    * @param {boolean} accessConfig.isPublic True if the package is to be public.
    * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
@@ -85,13 +83,12 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
-  async addPackageVersion(packageId: string, version: Version, hash: string, loc: string, accessConfig: {
+  async addPackageVersion(packageId: string, version: Version, accessConfig: {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
   }, dependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
     packageId = packageId.trim().toLowerCase();
-    hash = hash.toUpperCase();
 
     const versionString = versionStr(version);
 
@@ -101,11 +98,11 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     if (!accessConfig.isPublic && accessConfig.isStored && !accessConfig.privateKey )
       throw new InvalidPackageError('no_private_key');
 
-    const packageExists = await packageDatabase.packageIdExists(packageId);
+    const packageExists = await this.packageIdExists(packageId);
     if (!packageExists)
       throw new NoSuchPackageError(packageId);
       
-    const query = format('INSERT INTO versions (packageId, version, hash, isPublic, isStored, privateKey, loc, uploadDate) VALUES (?, ?, UNHEX(?), ?, ?, ?, ?, ?);', [packageId, versionString, hash, accessConfig.isPublic, accessConfig.isStored, accessConfig.privateKey ?? null, loc, new Date()]);
+    const query = format('INSERT INTO versions (packageId, version, hash, isPublic, isStored, privateKey, loc, uploadDate) VALUES (?, ?, UNHEX(?), ?, ?, ?, ?, ?);', [packageId, versionString, '00', accessConfig.isPublic, accessConfig.isStored, accessConfig.privateKey ?? null, '---', new Date()]);
 
     const promises: Promise<unknown>[] = [this._query(query)];
 
@@ -197,7 +194,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     if (typeof version !== 'undefined') {
       const versionString = versionStr(version);
 
-      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
+      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate, status FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
       const dependencyQuery = format('SELECT relationId, relationVersion FROM dependencies WHERE packageId=? AND version=?;', [packageId, versionString]);
       const incompatibilityQuery = format('SELECT relationId, relationVersion FROM incompatibilities WHERE packageId=? AND version=?;', [packageId, versionString]);
 
@@ -220,7 +217,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
       return versionData;
     } else {
-      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate FROM versions WHERE packageId=?;', [packageId]);
+      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate, status FROM versions WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
 
       // If the package has been uploaded it *must* have an initial version.
@@ -255,15 +252,11 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * @param {string} packageId The id to check for existence.
    * @returns {Promise<boolean>} A promise which resolves to true if the package id is already in use.
    */
-  async packageIdExists(packageId: string): Promise<boolean> {
-    try {
-      await this.getVersionData(packageId);
-      return true;
-    } catch (e) {
-      if (e instanceof NoSuchPackageError)
-        return false;
-      throw e;
-    }
+  async packageIdExists(packageId: string): Promise<boolean> {  
+    packageId = packageId.trim().toLowerCase();
+    const query = format('SELECT packageId FROM packages WHERE packageId=?;', [packageId]);
+
+    return !!(await this._query(query)).length;
   }
 
   /**
@@ -341,7 +334,60 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     if (!exists)
       throw new NoSuchPackageError(packageId);
   }
-  
+
+  /**
+   * Set the information after finishing processing a package version. Also update the status to {@link VersionStatus#Processed}.
+   * 
+   * @async
+   * @param {string} packageId The id of the package which contains the version to update.
+   * @param {Version} version The version of the package to update the version data of.
+   * @param {string} hash The sha256 checksum of the package.
+   * @param {string} loc The URL of the package, or "NOT_STORED" if the package is not stored.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
+   */
+  async resolveVersionData(packageId: string, version: Version, hash: string, loc: string): Promise<void>{ 
+    packageId = packageId.trim().toLowerCase();
+    const versionString = versionStr(version);
+
+    const query = format('UPDATE versions SET hash=UNHEX(?), loc=?, status=? WHERE packageId=? AND version=?;', [hash, loc, VersionStatus.Processed, packageId, versionString]);
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [_, exists] = await Promise.all([
+      this._query(query),
+      this.versionExists(packageId, version)
+    ]);    
+
+    if (!exists)
+      throw new NoSuchPackageError(packageId, versionString);
+  }
+
+  /**
+   * Update the status of a specific package version.
+   * 
+   * @async
+   * @param {string} packageId The id of the package which contains the version to update.
+   * @param {Version} version The version of the package to update the status of.
+   * @param {VersionStatus} newStatus The new status to set.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id.
+   */
+  async updatePackageStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void> {
+    packageId = packageId.trim().toLowerCase();
+    const versionString = versionStr(version);
+
+    const query = format('UPDATE versions SET status=? WHERE packageId=? AND version=?;', [newStatus, packageId, versionString]);
+
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const [_, exists] = await Promise.all([
+      this._query(query),
+      this.versionExists(packageId, version)
+    ]);    
+
+    if (!exists)
+      throw new NoSuchPackageError(packageId, versionString);
+  }
+
   /**
    * Say that one package requires a relation to another. Such as one package may be dependent on another.
    * 

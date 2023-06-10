@@ -48,7 +48,7 @@ route.post('/login', async (req, res) => {
   const { password } = body;
   const routeLogger = logger.child({
     ip: req.socket.remoteAddress,
-    path: '/login',
+    route: '/auth/login',
     email,
     requestId: req.id
   });
@@ -88,7 +88,7 @@ route.post('/create', async (req, res) => {
 
   const routeLogger = logger.child({
     ip: req.socket.remoteAddress,
-    path: '/create',
+    route: '/auth/create',
     email: body.email.trim().toLowerCase(),
     name: body.name.trim(),
     requestId: req.id
@@ -146,7 +146,7 @@ route.post('/verify/:verificationToken', async (req, res) => {
 
   const routeLogger = logger.child({
     ip: req.socket.remoteAddress,
-    path: '/verify/:verificationToken',
+    route: '/auth/verify/:verificationToken',
     authorId: id,
     requestId: req.id
   });

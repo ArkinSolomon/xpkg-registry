@@ -12,8 +12,6 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
-import Author from '../author.js';
-import { Version } from '../util/version.js';
 
 /**
  * Enumeration of all possible package types.
@@ -29,6 +27,27 @@ export enum PackageType {
   Livery = 'livery',
   Other = 'other'
 }
+
+/**
+ * Enumeration of all statuses for package versions.
+ * 
+ * @name VersionStatus
+ * @enum {string}
+ */
+export enum VersionStatus {
+  Processing = 'processing', 
+  Processed = 'processed',
+  Downloaded = 'downloaded', // Package file has been downloaded and is no longer available
+  Removed = 'removed', // The version has been removed 
+  FailedMACOSX = 'failed_macosx', // The version failed due to having only a __MACOSX file
+  FailedNoFileDir = 'failed_no_file_dir', // No directory with the package id present
+  FailedManifestExists = 'failed_manifest_exists', // Can not have a manifest.json file
+  FailedInvalidFileTypes = 'failed_invalid_file_types', // Can not have symbolic links or executables
+  FailedServer = 'failed_server' // Server error
+}
+
+import Author from '../author.js';
+import { Version } from '../util/version.js';
 
 /**
  * The data for a single package which is sent to the client.
@@ -62,6 +81,7 @@ export type PackageData = {
  * @property {string} loc The URL from which to download the package version.
  * @property {number} installs The number of installs for this version.
  * @property {Date} uploadDate The upload time of the package.
+ * @property {VersionStatus} VersionStatus The status of the package.
  * @property {[string][string][]} dependencies The dependencies of the version.
  * @property {[string][string][]} incompatibilities The incompatibilities of the version.
  */
@@ -75,6 +95,7 @@ export type VersionData = {
   privateKey: string;
   installs: number;
   uploadDate: Date;
+  status: VersionStatus;
   dependencies: [string, string][];
   incompatibilities: [string, string][];
 };
@@ -107,8 +128,6 @@ interface PackageDatabase {
    * @name PackageDatabase#insertVersion
    * @param {string} packageId The package identifier of the package that this version is for.
    * @param {Version} version The version string of the version.
-   * @param {string} hash The hash of the package as a hexadecimal string.
-   * @param {string} loc The URL of the package from which to download.
    * @param {Object} accessConfig The access config of the package version.
    * @param {boolean} accessConfig.isPublic True if the package is to be public.
    * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
@@ -119,7 +138,7 @@ interface PackageDatabase {
    * @throws {InvalidPackageError} Error thrown if the access config is invalid.
    * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
-  addPackageVersion(packageId: string, version: Version, hash: string, loc: string, accessConfig: {
+  addPackageVersion(packageId: string, version: Version, accessConfig: {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
@@ -174,7 +193,7 @@ interface PackageDatabase {
    * @name PackageDatabase#getVersionData
    * @param {string} packageId The id of the package to get the version data for.
    * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package.
-   * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
+   * @throws {NoSuchPackageError} Error thrown if the package with the specified id and version does not exist.
    */
   getVersionData(packageId: string): Promise<VersionData[]>;
 
@@ -232,6 +251,33 @@ interface PackageDatabase {
    * @throws {NoSuchPackageError} Error thrown if no package exists with the given id.
    */
   updateDescription(packageId: string, newDescription: string): Promise<void>;
+
+  /**
+   * Set the information after finishing processing a package version. Also update the status to {@link VersionStatus#Processed}.
+   * 
+   * @async
+   * @name PackageDatabase#resolveVersionData
+   * @param {string} packageId The id of the package which contains the version to update.
+   * @param {Version} version The version of the package to update the version data of.
+   * @param {string} hash The sha256 checksum of the package.
+   * @param {string} loc The URL of the package, or "NOT_STORED" if the package is not stored.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
+   */
+  resolveVersionData(packageId: string, version: Version, hash: string, loc: string): Promise<void>;
+
+  /**
+   * Update the status of a specific package version.
+   * 
+   * @async
+   * @name PackageDatabase#updateStatus
+   * @param {string} packageId The id of the package which contains the version to update.
+   * @param {Version} version The version of the package to update the status of.
+   * @param {VersionStatus} newStatus The new status to set.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
+   */
+  updatePackageStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void>;
 }
 
 // We have to seperate the export because EsLint gets mad

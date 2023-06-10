@@ -13,12 +13,12 @@
  * either express or implied limitations under the License.
  */
 
-// Re-export the databases we want to use, some are commented because connections can cause errors on import
+// Re-export the databases we want to use
 
 // JSON
-export { default as authorDatabase } from './json/jsonAuthorDB.js';
-export { default as packageDatabase } from './json/jsonPackageDB.js';
+// export { default as authorDatabase } from './json/jsonAuthorDB.js';
+// export { default as packageDatabase } from './json/jsonPackageDB.js';
 
 // MySQL
-// export { default as authorDatabase } from './mysql/mysqlAuthorDB.js';
-// export { default as packageDatabase } from './mysql/mysqlPackageDB.js';
+export { default as authorDatabase } from './mysql/mysqlAuthorDB.js';
+export { default as packageDatabase } from './mysql/mysqlPackageDB.js';

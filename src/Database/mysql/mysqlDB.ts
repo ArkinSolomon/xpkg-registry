@@ -88,10 +88,9 @@ export default abstract class MysqlDB {
         return callback(err, null as any);
 
       connection.query(queryString, (err, data) => {
-        if (err)
-
-          return callback(err, null as any);
         connection.release();
+        if (err)
+          return callback(err, null as any);
 
         callback(null, data as any[]);
       });

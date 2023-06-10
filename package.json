@@ -44,6 +44,7 @@
     "dotenv": "^16.0.3",
     "express": "^4.18.2",
     "express-fileupload": "^1.4.0",
+    "hasha": "^5.2.2",
     "i": "^0.3.7",
     "jsonwebtoken": "^9.0.0",
     "mkdirp": "^1.0.4",

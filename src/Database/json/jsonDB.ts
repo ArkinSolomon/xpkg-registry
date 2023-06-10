@@ -14,6 +14,7 @@
  */
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import { existsSync as fileExists, readFileSync } from 'fs';
 
 const databaseStorage = path.resolve('.', 'databases');
@@ -27,6 +28,7 @@ await fs.mkdir(databaseStorage, { recursive: true });
 export default abstract class JsonDB<T> {
 
   private _file;
+  private _lockFile;
   protected _data: T[] = [];
 
   /**
@@ -36,11 +38,31 @@ export default abstract class JsonDB<T> {
    */
   constructor(dbName: string) {
     this._file = path.join(databaseStorage, dbName + '.json');
+    this._lockFile = path.join(databaseStorage, dbName + '.json.lock');
 
+    this._aquireLock();
     if (fileExists(this._file)) {
       const content = readFileSync(this._file, 'utf-8');
       this._data = JSON.parse(content) as T[];
     } 
+    this._releaseLock();
+  }
+
+  /**
+   * Lock the file.
+   */
+  private _aquireLock() {
+    while (fsSync.existsSync(this._lockFile)) {
+      // Wait
+    }
+    fsSync.writeFileSync(this._lockFile, '');
+  }
+
+  /**
+   * Unlock the file.
+   */
+  private _releaseLock() {
+    fsSync.unlinkSync(this._lockFile);
   }
 
   /**
@@ -50,6 +72,9 @@ export default abstract class JsonDB<T> {
    * @returns {Promise<void>} A promise which resolves when the operation completes successfully.
    */
   protected async _save(): Promise<void> {
-    return fs.writeFile(this._file, JSON.stringify(this._data, null, 4), 'utf-8');
+    this._aquireLock();
+    await fs.writeFile(this._file, JSON.stringify(this._data, null, 4), 'utf-8');
+    this. _releaseLock();
+    return;
   }
 }

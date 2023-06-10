@@ -28,7 +28,7 @@ import Author from '../../author.js';
 import InvalidPackageError from '../../errors/invalidPackageError.js';
 import NoSuchPackageError from '../../errors/noSuchPackageError.js';
 import { Version, versionStr } from '../../util/version.js';
-import PackageDatabase, { PackageData, PackageType, VersionData } from '../packageDatabase.js';
+import PackageDatabase, { PackageData, PackageType, VersionData, VersionStatus } from '../packageDatabase.js';
 import JsonDB from './jsonDB.js';
 
 /**
@@ -76,8 +76,6 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
    * @async
    * @param {string} packageId The package identifier of the package that this version is for.
    * @param {Version} version The version string of the version.
-   * @param {string} hash The hash of the package as a hexadecimal string.
-   * @param {string} loc The URL of the package from which to download.
    * @param {Object} accessConfig The access config of the package version.
    * @param {boolean} accessConfig.isPublic True if the package is to be public.
    * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
@@ -88,13 +86,12 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
    * @throws {InvalidPackageError} Error thrown if the access config is invalid.
    * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
-  async addPackageVersion(packageId: string, version: Version, hash: string, loc: string, accessConfig: {
+  async addPackageVersion(packageId: string, version: Version, accessConfig: {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
   }, dependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
     packageId = packageId.trim().toLowerCase();
-    hash = hash.toUpperCase();
     const versionString = versionStr(version);
 
     if (accessConfig.isPublic && !accessConfig.isStored)
@@ -106,13 +103,14 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
     const versionData: InternalPackageData['versions'][number] = {
       packageId,
       version: versionString,
-      hash,
-      loc,
+      hash: '---',
+      loc: '---',
       isPublic: accessConfig.isPublic,
       isStored: accessConfig.isStored,
       installs: 0,
       uploadDate: Date.now(),
       privateKey: accessConfig.privateKey || '',
+      status: VersionStatus.Processing,
       dependencies,
       incompatibilities
     };
@@ -300,6 +298,64 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
 
     pkg.description = newDescription;
     
+    return this._save();
+  }
+
+  /**
+   * Set the information after finishing processing a package version. Also update the status to {@link VersionStatus#Processed}.
+   * 
+   * @async
+   * @param {string} packageId The id of the package which contains the version to update.
+   * @param {Version} version The version of the package to update the version data of.
+   * @param {string} hash The sha256 checksum of the package.
+   * @param {string} loc The URL of the package, or "NOT_STORED" if the package is not stored.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
+   */
+  async resolveVersionData(packageId: string, version: Version, hash: string, loc: string): Promise<void> {
+    packageId = packageId.trim().toLowerCase();
+
+    const pkg = this._data.find(p => p.packageId === packageId);
+    
+    if (!pkg)
+      throw new NoSuchPackageError(packageId);
+    
+    const versionString = versionStr(version);
+    const pkgVersion = pkg.versions.find(v => v.version === versionString);
+
+    if (!pkgVersion)
+      throw new NoSuchPackageError(packageId, versionString);
+    
+    pkgVersion.hash = hash.toUpperCase();
+    pkgVersion.loc = loc;
+    return this._save();
+  }
+
+  /**
+   * Update the status of a specific package version.
+   * 
+   * @async
+   * @param {string} packageId The id of the package which contains the version to update.
+   * @param {Version} version The version of the package to update the status of.
+   * @param {VersionStatus} newStatus The new status to set.
+   * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id.
+   */
+  async updatePackageStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void> {
+    packageId = packageId.trim().toLowerCase();
+
+    const pkg = this._data.find(p => p.packageId === packageId);
+    
+    if (!pkg)
+      throw new NoSuchPackageError(packageId);
+    
+    const versionString = versionStr(version);
+    const pkgVersion = pkg.versions.find(v => v.version === versionString);
+
+    if (!pkgVersion)
+      throw new NoSuchPackageError(packageId, versionString);
+    
+    pkgVersion.status = newStatus;
     return this._save();
   }
 }

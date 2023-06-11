@@ -28,19 +28,25 @@ import logger from '../logger.js';
 import { Worker } from 'worker_threads';
 import { rm } from 'fs/promises';
 import { customAlphabet } from 'nanoid/async';
+import { isMainThread } from 'worker_threads';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
 
 const UPLOAD_PATH = path.resolve(os.tmpdir(), 'xpkg-downloads');
-if (fs.existsSync(UPLOAD_PATH))
-  await rm(UPLOAD_PATH, {recursive: true, force: true});
+
+if (isMainThread) {
+  if (fs.existsSync(UPLOAD_PATH))
+    await rm(UPLOAD_PATH, { recursive: true, force: true });
+}
 const upload = multer({ dest: UPLOAD_PATH });
 
 const FILE_PROCESSOR_WORKER_PATH = path.resolve('.', 'dist', 'workers', 'fileProcessor.js');
 
-const privateKeyNanoId = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
+export const unzippedFilesLocation = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped');
+export const xpkgFilesLocation = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files');
 
+const privateKeyNanoId = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
 
 route.get('/', (_, res) => {
   res.sendFile(storeFile);

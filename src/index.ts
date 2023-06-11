@@ -23,8 +23,20 @@ import bodyParser from 'body-parser';
 import cors from 'cors';
 import { pinoHttp } from 'pino-http';
 import logger from './logger.js';
+import { unzippedFilesLocation, xpkgFilesLocation } from './routes/packages.js';
 
 logger.info('X-Pkg registry server starting');
+
+logger.info('Clearing leftover data from last run');
+await Promise.all([
+  fs.rm(unzippedFilesLocation, { recursive: true, force: true }),
+  fs.rm(xpkgFilesLocation, { recursive: true, force: true })
+]);
+await Promise.all([
+  fs.mkdir(unzippedFilesLocation, { recursive: true }),
+  fs.mkdir(xpkgFilesLocation, { recursive: true })
+]);
+logger.info('Done clearing data');
 
 const app = Express();
 app.use(bodyParser.json());

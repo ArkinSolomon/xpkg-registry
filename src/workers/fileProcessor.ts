@@ -63,6 +63,8 @@ import { packageDatabase } from '../database/databases.js';
 import hasha from 'hasha';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import Author from '../author.js';
+import JobsServiceManager, { JobData, JobType, PackagingInfo } from './jobsServiceManager.js';
+import { unzippedFilesLocation, xpkgFilesLocation } from '../routes/packages.js';
 
 if (isMainThread) {
   console.error('Worker files can not be run');
@@ -76,11 +78,21 @@ const data = workerData as FileProcessorData;
 const { zipFileLoc, authorId, packageName, packageId, packageVersion, packageType, dependencies, incompatibilities, accessConfig } = data;
 const [tempId, awsId] = await Promise.all([nanoid(32), nanoid(64)]);
 
-let unzippedFileLoc = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped', tempId);
-const xpkgFileLoc = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files', awsId + '.xpkg');
+let unzippedFileLoc = path.join(unzippedFilesLocation, tempId);
+const xpkgFileLoc = path.join(xpkgFilesLocation, awsId + '.xpkg');
 
 const logger = loggerBase.child({ ...data, tempId, zipFileLoc, unzippedFileLoc });
 parentPort?.postMessage('started');
+
+const jobData: JobData = {
+  jobType: JobType.Packaging,
+  info: <PackagingInfo>{
+    packageId,
+    version: versionStr(packageVersion)
+  }
+};
+const jobService = new JobsServiceManager(jobData, logger);
+await jobService.waitForAuthorization();
 
 const author = await Author.fromDatabase(authorId);
 
@@ -208,15 +220,16 @@ logger.info('Uploaded package to S3');
 await packageDatabase.resolveVersionData(packageId, packageVersion, hash, accessConfig.isStored ? `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}` : 'NOT_STORED');
 logger.info('Updated database');
 await fs.unlink(xpkgFileLoc);
-logger.info('Deleted local xpkg file');
+logger.info('Deleted local xpkg file, sending job done to jobs service');
 
 if (accessConfig.isStored)
   await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}`);
 else 
   await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}\nLink: ${privateUrl}`);
 
-
-logger.info('Worker thread done, emails sent');
+logger.info('Author notified of process success, notifying jobs service');
+await jobService.completed();
+logger.info('Worker thread completed');
 
 /**
  * Cleanup the unzipped directory as well as update the status in the database.

@@ -46,8 +46,10 @@ import * as jwtPromise from './util/jwtPromise.js';
 import bcrypt from 'bcrypt';
 import NoSuchAccountError from './errors/noSuchAccountError.js';
 
-// When the auth token should expire ()
-const expiresIn = 2.592e9;
+// When the auth token should expire
+const authTokenExpiry = 2.592e9;
+
+const GREETING_LIST = ['Hi', 'Hello', 'Howdy', 'Hola', 'Bonjour', 'Greetings', 'I hope this email finds you well', 'Hey', 'What\'s up', 'Salutations', 'Hey there'];
 
 /**
  * This class defines a user, which is passed as req.user in authorized routes.
@@ -191,7 +193,7 @@ export default class Author {
       id: this._id,
       name: this._name,
       session: await this.getSession(),
-    }, process.env.AUTH_SECRET as string, { expiresIn });
+    }, process.env.AUTH_SECRET as string, { expiresIn: authTokenExpiry });
   }
 
   /**
@@ -268,6 +270,16 @@ export default class Author {
    */
   async sendEmail(subject: string, content: string): Promise<void> {
     return email(this._email, subject, content);
+  }
+  
+  /**
+   * Get a random greeting for the author.
+   * 
+   * @returns {string} A random greeting (does not include a comma at the end).
+   */
+  greeting(): string{
+    const randomGreeting = GREETING_LIST[Math.floor(Math.random() * GREETING_LIST.length)];
+    return `${randomGreeting} ${this._name}`;
   }
 
   /**

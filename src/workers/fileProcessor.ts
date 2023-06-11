@@ -16,6 +16,7 @@
 /**
  * The data required to process a zip file and create an xpkg file.
  * 
+ * @typedef {Object} FileProcessorData
  * @property {string} zipFileLoc The location of the zip file to process.
  * @property {string} authorId The id of the author that is uploading this package version.
  * @property {string} packageName The name of the package that the user provided.
@@ -89,13 +90,14 @@ logger.info('Zip file decompressed');
 await fs.unlink(zipFileLoc);
 logger.info('Zip file deleted');
 
+const originalUnzippedRoot = unzippedFileLoc;
 let files = await fs.readdir(unzippedFileLoc);
 
 // Insufficient permissions to delete __MACOSX directory, so just process the sub-folder
 if (files.includes('__MACOSX')) {
   if (files.length != 2) {
     logger.info('Only __MACOSX file provided');
-    cleanupUnzippedFail(VersionStatus.FailedMACOSX);
+    await cleanupUnzippedFail(VersionStatus.FailedMACOSX);
     process.exit(1);
   }
     
@@ -107,14 +109,14 @@ if (files.includes('__MACOSX')) {
 
 if (!files.includes(packageId)) {
   logger.info('No directory with package id');
-  cleanupUnzippedFail(VersionStatus.FailedNoFileDir);
+  await cleanupUnzippedFail(VersionStatus.FailedNoFileDir);
   process.exit(1);
 
 }
 
 if (files.includes('manifest.json')) {
   logger.info('Manifest already exists');
-  cleanupUnzippedFail(VersionStatus.FailedManifestExists);
+  await cleanupUnzippedFail(VersionStatus.FailedManifestExists);
   process.exit(1);
 
 }
@@ -146,7 +148,7 @@ if (await findTrueFile(unzippedFileLoc, (s, p) => {
       || ((mode.owner.execute || mode.group.execute || mode.others.execute) && packageType !== 'executable');
 })) {
   logger.info('Invalid file type in package');
-  cleanupUnzippedFail(VersionStatus.FailedInvalidFileTypes);
+  await cleanupUnzippedFail(VersionStatus.FailedInvalidFileTypes);
   process.exit(1);
 }
 
@@ -164,7 +166,7 @@ await fs.mkdir(parent, { recursive: true });
 logger.info('Done processing files, zipping xpkg file');
 await zipDirectory(unzippedFileLoc, xpkgFileLoc);
 logger.info('Done zipping xpkg file');
-await fs.rm(unzippedFileLoc, {recursive: true, force: true});
+await fs.rm(originalUnzippedRoot, {recursive: true, force: true});
 logger.info('Deleted unzipped files');
 
 const hashStream = createReadStream(xpkgFileLoc);
@@ -209,9 +211,9 @@ await fs.unlink(xpkgFileLoc);
 logger.info('Deleted local xpkg file');
 
 if (accessConfig.isStored)
-  await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `Hi ${author.name},\n\nYour package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}`);
+  await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}`);
 else 
-  await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `Hi ${author.name},\n\nYour package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}\nLink: ${privateUrl}`);
+  await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}\nLink: ${privateUrl}`);
 
 
 logger.info('Worker thread done, emails sent');
@@ -225,10 +227,37 @@ logger.info('Worker thread done, emails sent');
 async function cleanupUnzippedFail(failureStatus: VersionStatus): Promise<void> {
   logger.info('Packaging failed, cleaning up unzipped directory and updating status: ' + failureStatus);
   await Promise.all([
-    fs.rm(unzippedFileLoc, {recursive: true, force: true}),
-    packageDatabase.updatePackageStatus(packageId, packageVersion, failureStatus)
+    fs.rm(originalUnzippedRoot, { recursive: true, force: true }),
+    packageDatabase.updatePackageStatus(packageId, packageVersion, failureStatus),
+    author.sendEmail(`X-Pkg Packaging Failure (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} was not able to be processed. ${getVersionStatusReason(failureStatus)}\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}`)
   ]);
-  logger.info('Cleaned up unzipped directory, status updated');
+  logger.info('Cleaned up unzipped directory, status updated, and author notified');
+}
+
+/**
+ * Get a sentence that describes the version status.
+ * 
+ * @param {VersionStatus} versionStatus The status to describe.
+ * @return {string} A human-readable sentence which describes the version status.
+ */
+function getVersionStatusReason(versionStatus: VersionStatus): string {
+  switch (versionStatus) {
+  case VersionStatus.FailedMACOSX: return 'The file was zipped improperly, the only directory present is the __MACOSX directory.';
+  case VersionStatus.FailedInvalidFileTypes:
+    if (packageType === PackageType.Executable)
+      return 'You can not have symbolic links in your packages.';
+    else
+      return 'You can not have symbolic links or executables in your packages.';
+  case VersionStatus.FailedManifestExists:  return 'You can not have a file named "manifest.json" in your zip folder root.';
+  case VersionStatus.FailedNoFileDir: return 'No directory was found with the package id.';
+  case VersionStatus.FailedServer: return 'The server failed to process the file, please try again later.';
+  case VersionStatus.Removed:
+  case VersionStatus.Downloaded:
+  case VersionStatus.Processed:
+  case VersionStatus.Processing:
+    return 'If you see this sentence, something broke.';
+  default: return 'Unknown';
+  }
 }
 
 /**

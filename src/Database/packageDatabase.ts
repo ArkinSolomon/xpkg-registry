@@ -43,7 +43,8 @@ export enum VersionStatus {
   FailedNoFileDir = 'failed_no_file_dir', // No directory with the package id present
   FailedManifestExists = 'failed_manifest_exists', // Can not have a manifest.json file
   FailedInvalidFileTypes = 'failed_invalid_file_types', // Can not have symbolic links or executables
-  FailedServer = 'failed_server' // Server error
+  FailedServer = 'failed_server', // Server error
+  Aborted = 'aborted' // Job took too long
 }
 
 import Author from '../author.js';

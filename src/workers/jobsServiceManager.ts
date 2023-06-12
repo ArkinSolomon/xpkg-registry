@@ -73,8 +73,20 @@ export default class JobsServiceManager {
   _data: JobData;
   _logger: Logger;
 
+  _onAbort: () => void;
+
   _authorized = false;
   _done = false;
+  _aborted = false;
+
+  /**
+   * True if the job has been aborted.
+   * 
+   * @type {boolean}
+   */
+  get aborted(): boolean {
+    return this._aborted;
+  }
 
   /**
    * Create a new connection to the jobs service.
@@ -82,8 +94,10 @@ export default class JobsServiceManager {
    * @constructor
    * @param {JobData} jobData The data regarding the job.
    * @param {Logger} logger The logger to log to. Does not create a child logger.
+   * @param {() => Promise<void>} onAbort The function which is run when a job is aborted.
    */
-  constructor(jobData: JobData, logger: Logger) {
+  constructor(jobData: JobData, logger: Logger, onAbort: () => Promise<void>) {
+    this._onAbort = onAbort;
     this._logger = logger;
     this._data = jobData;
     this._socket = io(`ws://${process.env.JOBS_SERVICE_ADDR}:${process.env.JOBS_SERVICE_PORT}/`, {
@@ -95,16 +109,18 @@ export default class JobsServiceManager {
       this._logger.info('Trust key recieved from jobs service');
 
       if (!trustKey || typeof trustKey !== 'string') {
-        this._socket.disconnect();
         this._logger.error('Jobs service not trusted, invalid data provided');
-        process.exit(1);
+        this._socket.disconnect();
+        this._abort();
+        return;
       }
 
       const hash = hasha(trustKey, { algorithm: 'sha256' });
       if (hash !== process.env.SERVER_TRUST_HASH) {
-        this._socket.disconnect();
         this._logger.error('Jobs service not trusted, invalid server trust');
-        process.exit(1);
+        this._socket.disconnect();
+        this._abort();
+        return;
       }
 
       this._logger.info('Jobs service trust key valid');      
@@ -121,14 +137,45 @@ export default class JobsServiceManager {
       this._authorized = true;
     });
 
-    this._socket.on('disconnect', () => {
+    this._socket.on('disconnect', reason => {
       this._authorized = false;
 
-      if (!this._done)
-        this._logger.error('Unexpectedly disconnected from jobs service');
-      else
-        this._logger.info('Disconnected from jobs service');
+      if (!this._aborted) {
+        if (!this._done)
+          this._logger.error(`Unexpectedly disconnected from jobs service (${reason})`);
+        else
+          this._logger.info(`Gracefully disconnected from jobs service (${reason})`);
+      } else 
+        this._logger.info(`Disconnected from jobs service, job aborted (${reason})`);
+      
+      // Terrible way to do this, but we need the logs to finish (and logger.flush doesn't work :/)
+      setTimeout(() => process.exit(), 250);
     });
+    
+    this._socket.on('abort', () => {
+      this._logger.info('Abort request recieved from jobs service');
+      this._socket.emit('aborting');
+      this._abort();
+    });
+  }
+
+  /**
+   * Abort the job.
+   * 
+   * @async
+   * @returns {Promise<void>} A promise which resolves after all abortion operations complete.
+   */
+  async _abort(): Promise<void> {
+    this._logger.warn('Aborting job');
+
+    this._done = true;
+    this._aborted = true;
+
+    await this._onAbort();
+
+    await this.waitForAuthorization();
+    this._socket.emit('done', 'aborted');
+    this._socket.disconnect();
   }
 
   /**
@@ -137,11 +184,13 @@ export default class JobsServiceManager {
    * @returns {Promise<void>} A promise which returns once the method detects that we have been authorized with the jobs service.
    */
   waitForAuthorization(): Promise<void> {
+    if (!this._authorized)
+      this._logger.info('Waiting for authorization with jobs service');
     return new Promise(resolve => {
       const intervalId = setInterval(() => {
         if (this._authorized) {
           clearInterval(intervalId);
-          this._logger.info('Client authorized with jobs service');
+          this._logger.info('Worker authorized with jobs service');
           resolve();
         }
       }, 500);
@@ -155,13 +204,20 @@ export default class JobsServiceManager {
    * @returns {Promise<void>} A promise which resolves when the server acknowledges the completion.
    */
   async completed(): Promise<void> {
+    if (this._aborted) {
+      this._logger.warn('Job is attempting to complete after abortion started, can not complete');
+      return;
+    }
+
     await this.waitForAuthorization();
     return new Promise(resolve => {
+      this._done = true;
       this._socket.once('goodbye', () => {
         this._logger.info('Jobs service acknowledged that the job is complete');
         resolve();
+        this._socket.disconnect();
       });
-      this._socket.emit('done');
+      this._socket.emit('done', 'normal');
     });
   }
 }

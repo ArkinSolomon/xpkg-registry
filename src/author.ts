@@ -49,7 +49,7 @@ import NoSuchAccountError from './errors/noSuchAccountError.js';
 // When the auth token should expire
 const authTokenExpiry = 2.592e9;
 
-const GREETING_LIST = ['Hi', 'Hello', 'Howdy', 'Hola', 'Bonjour', 'Greetings', 'I hope this email finds you well', 'Hey', 'What\'s up', 'Salutations', 'Hey there'];
+const GREETING_LIST = ['Hi', 'Hello', 'Howdy', 'Hola', 'Bonjour', 'Greetings', 'Hey', 'What\'s up', 'Salutations', 'Hey there'];
 
 /**
  * This class defines a user, which is passed as req.user in authorized routes.

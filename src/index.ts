@@ -27,7 +27,7 @@ import { unzippedFilesLocation, xpkgFilesLocation } from './routes/packages.js';
 
 logger.info('X-Pkg registry server starting');
 
-logger.info('Clearing leftover data from last run');
+logger.info('Cleaning up leftover files from last run');
 await Promise.all([
   fs.rm(unzippedFilesLocation, { recursive: true, force: true }),
   fs.rm(xpkgFilesLocation, { recursive: true, force: true })
@@ -36,7 +36,7 @@ await Promise.all([
   fs.mkdir(unzippedFilesLocation, { recursive: true }),
   fs.mkdir(xpkgFilesLocation, { recursive: true })
 ]);
-logger.info('Done clearing data');
+logger.info('Done cleaning up files');
 
 const app = Express();
 app.use(bodyParser.json());
@@ -151,14 +151,14 @@ async function updateData(): Promise<void> {
     data.push(newData);
   }
 
-  logger.info(`Package data updated, ${data.length} packages`);
+  logger.info(`Package data updated, ${data.length || 'no'} package${data.length == 1 ? '' : 's'}`);
   return fs.writeFile(storeFile, JSON.stringify({ data }), 'utf-8');
 }
 
 await updateData();
 const updateInterval = 60 * 1000;
 setInterval(updateData, updateInterval);
-logger.info(`Package data updating  every ${updateInterval}ms`);
+logger.info(`Package data updating every ${updateInterval}ms`);
 
 const port = process.env.port || 5020;
 app.listen(port, () => {

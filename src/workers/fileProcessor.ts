@@ -47,7 +47,7 @@ export type FileProcessorData = {
 }
 
 import fs from 'fs/promises';
-import { existsSync as exists } from 'fs';
+import { existsSync as exists, rmSync } from 'fs';
 import { unlinkSync, lstatSync, Stats, createWriteStream, createReadStream} from 'fs';
 import path from 'path';
 import Mode from 'stat-mode';
@@ -75,14 +75,34 @@ const PUBLIC_BUCKET_NAME = 'xpkgregistrydev';
 const PRIVATE_BUCKET_NAME = 'xpkgprivatepackagesdev';
 const data = workerData as FileProcessorData;
 
-const { zipFileLoc, authorId, packageName, packageId, packageVersion, packageType, dependencies, incompatibilities, accessConfig } = data;
+const {
+  zipFileLoc,
+  authorId,
+  packageName,
+  packageId,
+  packageVersion,
+  packageType,
+  dependencies,
+  incompatibilities,
+  accessConfig
+} = data;
 const [tempId, awsId] = await Promise.all([nanoid(32), nanoid(64)]);
 
 let unzippedFileLoc = path.join(unzippedFilesLocation, tempId);
 const xpkgFileLoc = path.join(xpkgFilesLocation, awsId + '.xpkg');
+let originalUnzippedRoot: string;
 
-const logger = loggerBase.child({ ...data, tempId, zipFileLoc, unzippedFileLoc });
+const logger = loggerBase.child({
+  ...data,
+  tempId,
+  zipFileLoc,
+  unzippedFileLoc,
+  packageVersion: versionStr(packageVersion)
+});
+logger.info('Starting processing of package');
 parentPort?.postMessage('started');
+
+const author = await Author.fromDatabase(authorId);
 
 const jobData: JobData = {
   jobType: JobType.Packaging,
@@ -91,185 +111,151 @@ const jobData: JobData = {
     version: versionStr(packageVersion)
   }
 };
-const jobService = new JobsServiceManager(jobData, logger);
-await jobService.waitForAuthorization();
+const jobsService = new JobsServiceManager(jobData, logger, abort);
+await jobsService.waitForAuthorization();
 
-const author = await Author.fromDatabase(authorId);
+try {
+  logger.info('Decompressing zip file');
+  await decompress(zipFileLoc, unzippedFileLoc);
+  logger.info('Zip file decompressed');
+  await fs.unlink(zipFileLoc);
+  logger.info('Zip file deleted');
 
-logger.info('Decompressing zip file');
-await decompress(zipFileLoc, unzippedFileLoc);
-logger.info('Zip file decompressed');
-await fs.unlink(zipFileLoc);
-logger.info('Zip file deleted');
+  originalUnzippedRoot = unzippedFileLoc;
+  let files = await fs.readdir(unzippedFileLoc);
 
-const originalUnzippedRoot = unzippedFileLoc;
-let files = await fs.readdir(unzippedFileLoc);
+  // Insufficient permissions to delete __MACOSX directory, so just process the sub-folder
+  if (files.includes('__MACOSX')) {
+    if (files.length != 2) {
+      logger.info('Only __MACOSX file provided');
+      await cleanupUnzippedFail(VersionStatus.FailedMACOSX);
+      process.exit(1);
+    }
+    
+    const subFolderName = files.find(fName => fName !== '__MACOSX');
+    unzippedFileLoc = path.join(unzippedFileLoc, subFolderName as string);
+    
+    files = await fs.readdir(unzippedFileLoc);
+  }
 
-// Insufficient permissions to delete __MACOSX directory, so just process the sub-folder
-if (files.includes('__MACOSX')) {
-  if (files.length != 2) {
-    logger.info('Only __MACOSX file provided');
-    await cleanupUnzippedFail(VersionStatus.FailedMACOSX);
+  if (!files.includes(packageId)) {
+    logger.info('No directory with package id');
+    await cleanupUnzippedFail(VersionStatus.FailedNoFileDir);
+    process.exit(1);
+
+  }
+
+  if (files.includes('manifest.json')) {
+    logger.info('Manifest already exists');
+    await cleanupUnzippedFail(VersionStatus.FailedManifestExists);
     process.exit(1);
   }
-    
-  const subFolderName = files.find(fName => fName !== '__MACOSX');
-  unzippedFileLoc = path.join(unzippedFileLoc, subFolderName as string);
-    
-  files = await fs.readdir(unzippedFileLoc);
-}
+  const manifestPath = path.join(unzippedFileLoc, 'manifest.json');
 
-if (!files.includes(packageId)) {
-  logger.info('No directory with package id');
-  await cleanupUnzippedFail(VersionStatus.FailedNoFileDir);
-  process.exit(1);
+  const manifest = {
+    packageName,
+    packageId,
+    packageVersion: versionStr(packageVersion),
+    authorId,
+    dependencies,
+    incompatibilities
+  };
 
-}
+  let hasSymbolicLink = false;
+  if (await findTrueFile(unzippedFileLoc, (s, p) => {
+    const mode = Mode(s);
 
-if (files.includes('manifest.json')) {
-  logger.info('Manifest already exists');
-  await cleanupUnzippedFail(VersionStatus.FailedManifestExists);
-  process.exit(1);
+    // We want to delete the file if it's a .DS_STORE or desktop.ini
+    if (path.basename(p) === '.DS_Store' || path.basename(p) === 'desktop.ini') {
+      unlinkSync(p);
+      return false;
+    }
 
-}
-const manifestPath = path.join(unzippedFileLoc, 'manifest.json');
-
-const manifest = {
-  packageName,
-  packageId,
-  packageVersion: versionStr(packageVersion),
-  authorId,
-  dependencies,
-  incompatibilities
-};
-
-let hasSymbolicLink = false;
-if (await findTrueFile(unzippedFileLoc, (s, p) => {
-  const mode = Mode(s);
-
-  // We want to delete the file if it's a .DS_STORE or desktop.ini
-  if (path.basename(p) === '.DS_Store' || path.basename(p) === 'desktop.ini') {
-    unlinkSync(p);
-    return false;
-  }
-
-  hasSymbolicLink = s.isSymbolicLink();
-  return hasSymbolicLink
+    hasSymbolicLink = s.isSymbolicLink();
+    return hasSymbolicLink
 
       // Need to test to make sure this catches windows, mac, and linux executables
       || ((mode.owner.execute || mode.group.execute || mode.others.execute) && packageType !== 'executable');
-})) {
-  logger.info('Invalid file type in package');
-  await cleanupUnzippedFail(VersionStatus.FailedInvalidFileTypes);
-  process.exit(1);
-}
+  })) {
+    logger.info('Invalid file type in package');
+    await cleanupUnzippedFail(VersionStatus.FailedInvalidFileTypes);
+    process.exit(1);
+  }
 
-await Promise.all([
-  fs.writeFile(manifestPath, JSON.stringify(manifest, null, 4), 'utf-8'),
-  useDefaultScript('install.ska', packageType, unzippedFileLoc, files),
-  useDefaultScript('uninstall.ska', packageType, unzippedFileLoc, files),
-  useDefaultScript('upgrade.ska', packageType, unzippedFileLoc, files)
-]);
-  
-// We need to make the parent so that zipping doesn't fail
-const parent = path.resolve(xpkgFileLoc, '..');
-await fs.mkdir(parent, { recursive: true });
-  
-logger.info('Done processing files, zipping xpkg file');
-await zipDirectory(unzippedFileLoc, xpkgFileLoc);
-logger.info('Done zipping xpkg file');
-await fs.rm(originalUnzippedRoot, {recursive: true, force: true});
-logger.info('Deleted unzipped files');
-
-const hashStream = createReadStream(xpkgFileLoc);
-const hash = await hasha.fromStream(hashStream, { algorithm: 'sha256', encoding: 'hex' });
-logger.info(`Created xpkg file hash: ${hash}`);
-
-const s3client = new S3Client({
-  region: 'us-east-2'
-});
-
-const fileStream = createReadStream(xpkgFileLoc);
-let privateUrl;
-if (accessConfig.isStored) {
-  const putCmd = new PutObjectCommand({
-    Bucket: PUBLIC_BUCKET_NAME,
-    Key: awsId,
-    Body: fileStream
-  });
-  await s3client.send(putCmd);
-} else {
-  const putCmd = new PutObjectCommand({
-    Bucket: PRIVATE_BUCKET_NAME,
-    Key: awsId,
-    Body: fileStream
-  });
-  await s3client.send(putCmd);
-
-  const getCmd = new GetObjectCommand({
-    Bucket: PRIVATE_BUCKET_NAME,
-    Key: awsId,
-    ResponseContentDisposition: `attachment; filename="${packageId}@${packageVersion.toString()}.xpkg"`
-  });
-  
-  // Get a URL that expires in a day
-  privateUrl = await getSignedUrl(s3client, getCmd, {expiresIn: 24 * 60 * 60}) as string;
-}
-
-logger.info('Uploaded package to S3');
-await packageDatabase.resolveVersionData(packageId, packageVersion, hash, accessConfig.isStored ? `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}` : 'NOT_STORED');
-logger.info('Updated database');
-await fs.unlink(xpkgFileLoc);
-logger.info('Deleted local xpkg file, sending job done to jobs service');
-
-if (accessConfig.isStored)
-  await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}`);
-else 
-  await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}\nLink: ${privateUrl}`);
-
-logger.info('Author notified of process success, notifying jobs service');
-await jobService.completed();
-logger.info('Worker thread completed');
-
-/**
- * Cleanup the unzipped directory as well as update the status in the database.
- * 
- * @param {VersionStatus} failureStatus The status to set in the database.
- * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
- */
-async function cleanupUnzippedFail(failureStatus: VersionStatus): Promise<void> {
-  logger.info('Packaging failed, cleaning up unzipped directory and updating status: ' + failureStatus);
   await Promise.all([
-    fs.rm(originalUnzippedRoot, { recursive: true, force: true }),
-    packageDatabase.updatePackageStatus(packageId, packageVersion, failureStatus),
-    author.sendEmail(`X-Pkg Packaging Failure (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} was not able to be processed. ${getVersionStatusReason(failureStatus)}\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}`)
+    fs.writeFile(manifestPath, JSON.stringify(manifest, null, 4), 'utf-8'),
+    useDefaultScript('install.ska', packageType, unzippedFileLoc, files),
+    useDefaultScript('uninstall.ska', packageType, unzippedFileLoc, files),
+    useDefaultScript('upgrade.ska', packageType, unzippedFileLoc, files)
   ]);
-  logger.info('Cleaned up unzipped directory, status updated, and author notified');
-}
 
-/**
- * Get a sentence that describes the version status.
- * 
- * @param {VersionStatus} versionStatus The status to describe.
- * @return {string} A human-readable sentence which describes the version status.
- */
-function getVersionStatusReason(versionStatus: VersionStatus): string {
-  switch (versionStatus) {
-  case VersionStatus.FailedMACOSX: return 'The file was zipped improperly, the only directory present is the __MACOSX directory.';
-  case VersionStatus.FailedInvalidFileTypes:
-    if (packageType === PackageType.Executable)
-      return 'You can not have symbolic links in your packages.';
-    else
-      return 'You can not have symbolic links or executables in your packages.';
-  case VersionStatus.FailedManifestExists:  return 'You can not have a file named "manifest.json" in your zip folder root.';
-  case VersionStatus.FailedNoFileDir: return 'No directory was found with the package id.';
-  case VersionStatus.FailedServer: return 'The server failed to process the file, please try again later.';
-  case VersionStatus.Removed:
-  case VersionStatus.Downloaded:
-  case VersionStatus.Processed:
-  case VersionStatus.Processing:
-    return 'If you see this sentence, something broke.';
-  default: return 'Unknown';
+  
+  // We need to make the parent so that zipping doesn't fail
+  const parent = path.resolve(xpkgFileLoc, '..');
+  await fs.mkdir(parent, { recursive: true });
+  
+  logger.info('Done processing files, zipping xpkg file');
+  await zipDirectory(unzippedFileLoc, xpkgFileLoc);
+  logger.info('Done zipping xpkg file');
+  await fs.rm(originalUnzippedRoot, {recursive: true, force: true});
+  logger.info('Deleted unzipped files');
+
+  const hashStream = createReadStream(xpkgFileLoc);
+  const hash = await hasha.fromStream(hashStream, { algorithm: 'sha256', encoding: 'hex' });
+  logger.info(`Created xpkg file hash: ${hash}`);
+
+  const s3client = new S3Client({
+    region: 'us-east-2'
+  });
+
+  const fileStream = createReadStream(xpkgFileLoc);
+  let privateUrl;
+
+  if (accessConfig.isStored) {
+    const putCmd = new PutObjectCommand({
+      Bucket: PUBLIC_BUCKET_NAME,
+      Key: awsId,
+      Body: fileStream
+    });
+    await s3client.send(putCmd);
+  } else {
+    const putCmd = new PutObjectCommand({
+      Bucket: PRIVATE_BUCKET_NAME,
+      Key: awsId,
+      Body: fileStream
+    });
+    await s3client.send(putCmd);
+
+    const getCmd = new GetObjectCommand({
+      Bucket: PRIVATE_BUCKET_NAME,
+      Key: awsId,
+      ResponseContentDisposition: `attachment; filename="${packageId}@${packageVersion.toString()}.xpkg"`
+    });
+  
+    // Get a URL that expires in a day
+    privateUrl = await getSignedUrl(s3client, getCmd, { expiresIn: 24 * 60 * 60 }) as string;
+  }
+
+  logger.info('Uploaded package to S3');
+  await packageDatabase.resolveVersionData(packageId, packageVersion, hash, accessConfig.isStored ? `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}` : 'NOT_STORED');
+  logger.info('Updated database');
+  await fs.unlink(xpkgFileLoc);
+  logger.info('Deleted local xpkg file, sending job done to jobs service');
+
+  if (accessConfig.isStored)
+    await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}`);
+  else 
+    await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}\nChecksum: ${hash}\nLink: ${privateUrl}`);
+
+  logger.info('Author notified of process success, notifying jobs service');
+  await jobsService.completed();
+  logger.info('Worker thread completed');
+} catch (e) {
+  if (jobsService.aborted)
+    logger.warn(e, 'Error occured after abortion');
+  else {
+    logger.error(e);
+    throw e;
   }
 }
 
@@ -337,4 +323,74 @@ function zipDirectory(sourceDir: string, outPath: string): Promise<void> {
     stream.on('close', () => resolve());
     archive.finalize();
   });
+}
+
+/**
+ * Cleanup the unzipped directory as well as update the status in the database.
+ * 
+ * @param {VersionStatus} failureStatus The status to set in the database.
+ * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
+ */
+async function cleanupUnzippedFail(failureStatus: VersionStatus): Promise<void> {
+  logger.info('Packaging failed, cleaning up unzipped directory and updating status: ' + failureStatus);
+  await Promise.all([
+    fs.rm(originalUnzippedRoot, { recursive: true, force: true }),
+    packageDatabase.updatePackageStatus(packageId, packageVersion, failureStatus),
+    sendFailureEmail(failureStatus)
+  ]);
+  logger.info('Cleaned up unzipped directory, status updated, and author notified');
+}
+
+/**
+ * Abort the job.
+ * 
+ * @async
+ * @returns {Promise<void>} A promise which resolves once the processing has been aborted.
+ */
+async function abort(): Promise<void> {
+  await Promise.all([
+    packageDatabase.updatePackageStatus(packageId, packageVersion, VersionStatus.Aborted),
+    sendFailureEmail(VersionStatus.Aborted)
+  ]);
+  rmSync(xpkgFileLoc, { force: true });
+  rmSync(unzippedFileLoc, { recursive: true, force: true });
+  rmSync(zipFileLoc, { force: true });
+  logger.info('Cleaned up jobs for abortion');
+}
+
+/**
+ * Send an email stating that packaging failed.
+ * 
+ * @param {VersionStatus} failureStatus The resulting status which is the reason for the failure.
+ * @returns {Promise<void>} A promise which resolves once the email is sent.
+ */
+async function sendFailureEmail(failureStatus: VersionStatus): Promise<void> {
+  return author.sendEmail(`X-Pkg Packaging Failure (${packageId})`, `${author.greeting()},\n\nYour package, ${packageId}, was not able to be processed. ${getVersionStatusReason(failureStatus)}\n\nPackage id: ${packageId}\nPackage version: ${versionStr(packageVersion)}`);
+}
+
+/**
+ * Get a sentence that describes the version status.
+ * 
+ * @param {VersionStatus} versionStatus The status to describe.
+ * @return {string} A human-readable sentence which describes the version status.
+ */
+function getVersionStatusReason(versionStatus: VersionStatus): string {
+  switch (versionStatus) {
+  case VersionStatus.FailedMACOSX: return 'The file was zipped improperly, the only directory present is the __MACOSX directory.';
+  case VersionStatus.FailedInvalidFileTypes:
+    if (packageType === PackageType.Executable)
+      return 'You can not have symbolic links in your packages.';
+    else
+      return 'You can not have symbolic links or executables in your packages.';
+  case VersionStatus.FailedManifestExists:  return 'You can not have a file named "manifest.json" in your zip folder root.';
+  case VersionStatus.FailedNoFileDir: return 'No directory was found with the package id.';
+  case VersionStatus.FailedServer: return 'The server failed to process the file, please try again later.';
+  case VersionStatus.Aborted: return 'The process was aborted for an unknown reason.';
+  case VersionStatus.Removed:
+  case VersionStatus.Downloaded:
+  case VersionStatus.Processed:
+  case VersionStatus.Processing:
+    return 'If you see this sentence, something broke.';
+  default: return '<<Unknown Reason>>';
+  }
 }

@@ -69,15 +69,15 @@ import { Socket, io } from 'socket.io-client';
  */
 export default class JobsServiceManager {
 
-  _socket: Socket;
-  _data: JobData;
-  _logger: Logger;
+  private _socket: Socket;
+  private _data: JobData;
+  private _logger: Logger;
 
-  _onAbort: () => void;
+  private _onAbort: () => void;
 
-  _authorized = false;
-  _done = false;
-  _aborted = false;
+  private _authorized = false;
+  private _done = false;
+  private _aborted = false;
 
   /**
    * True if the job has been aborted.
@@ -165,7 +165,7 @@ export default class JobsServiceManager {
    * @async
    * @returns {Promise<void>} A promise which resolves after all abortion operations complete.
    */
-  async _abort(): Promise<void> {
+  private async _abort(): Promise<void> {
     this._logger.warn('Aborting job');
 
     this._done = true;

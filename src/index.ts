@@ -62,7 +62,7 @@ import account from './routes/account.js';
 
 import { authorDatabase, packageDatabase } from './database/databases.js';
 
-import { PackageData } from './database/packageDatabase.js';
+import { PackageData, VersionStatus } from './database/packageDatabase.js';
 import Author, { AuthTokenPayload } from './author.js';
 
 // Update this with all routes that require tokens
@@ -70,7 +70,7 @@ const authRoutes = [
   '/packages/upload',
   '/packages/new',
   '/packages/description',
-  '/packages/newversion',
+  '/packages/upload',
   '/account/*'
 ];
 
@@ -145,10 +145,11 @@ async function updateData(): Promise<void> {
 
     // Get only the version strings of all of the versions of the package
     newData.versions = (await packageDatabase.getVersionData(pkg.packageId))
-      .filter(v => v.isPublic)
+      .filter(v => v.isPublic && v.status === VersionStatus.Processed)
       .map(v => v.version);
-    
-    data.push(newData);
+
+    if (newData.versions.length)
+      data.push(newData);
   }
 
   logger.info(`Package data updated, ${data.length || 'no'} package${data.length == 1 ? '' : 's'}`);

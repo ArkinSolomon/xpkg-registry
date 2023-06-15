@@ -43,10 +43,10 @@ export default abstract class MysqlDB {
   constructor(poolCount: number) {
     this._pool = mysql.createPool({
       connectionLimit: poolCount,
-      host: '127.0.0.1',
-      user: process.env.DB_USER,
-      password: process.env.DB_PASSWORD,
-      database: 'xpkg_packages',
+      host: process.env.MYSQL_DB_ADDR,
+      user: process.env.MYSQL_DB_USER,
+      password: process.env.MYSQL_DB_PASSWORD,
+      database: process.env.MYSQL_DB_NAME,
       multipleStatements: false
     });
   }

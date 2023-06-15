@@ -37,7 +37,6 @@ export enum PackageType {
 export enum VersionStatus {
   Processing = 'processing', 
   Processed = 'processed',
-  Downloaded = 'downloaded', // Package file has been downloaded and is no longer available
   Removed = 'removed', // The version has been removed 
   FailedMACOSX = 'failed_macosx', // The version failed due to having only a __MACOSX file
   FailedNoFileDir = 'failed_no_file_dir', // No directory with the package id present
@@ -48,7 +47,7 @@ export enum VersionStatus {
 }
 
 import Author from '../author.js';
-import { Version } from '../util/version.js';
+import Version from '../util/version.js';
 
 /**
  * The data for a single package which is sent to the client.
@@ -193,8 +192,8 @@ interface PackageDatabase {
    * @async
    * @name PackageDatabase#getVersionData
    * @param {string} packageId The id of the package to get the version data for.
-   * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package.
-   * @throws {NoSuchPackageError} Error thrown if the package with the specified id and version does not exist.
+   * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package. If no versions exist, an empty array is returned.
+   * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
   getVersionData(packageId: string): Promise<VersionData[]>;
 

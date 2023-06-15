@@ -20,8 +20,8 @@ import os from 'os';
 import fs from 'fs';
 import Author from '../author.js';
 import * as validators from '../util/validators.js';
-import isVersionValid from '../util/version.js';
-import { PackageType } from '../database/packageDatabase.js';
+import Version from '../util/version.js';
+import { PackageData, PackageType } from '../database/packageDatabase.js';
 import { packageDatabase } from '../database/databases.js';
 import { FileProcessorData } from '../workers/fileProcessor.js';
 import logger from '../logger.js';
@@ -29,6 +29,7 @@ import { Worker } from 'worker_threads';
 import { rm } from 'fs/promises';
 import { customAlphabet } from 'nanoid/async';
 import { isMainThread } from 'worker_threads';
+import SelectionChecker from '../util/selectionChecker.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -58,7 +59,7 @@ route.get('/:packageId/:version', async (req, res) => {
     version: string;
   };
 
-  const version = isVersionValid(versionString);
+  const version = Version.fromString(versionString);
   if (!version)
     return res.sendStatus(400);
 
@@ -135,8 +136,7 @@ route.put('/description', async (req, res) => {
   }
 });
 
-route.post('/new', upload.single('file'), async (req, res) => {
-  const file = req.file;
+route.post('/new', upload.none(), async (req, res) => {
   const author = req.user as Author;
 
   const routeLogger = logger.child({
@@ -149,39 +149,19 @@ route.post('/new', upload.single('file'), async (req, res) => {
 
   let packageId: string;
   let packageName: string;
-  let packageTypeStr: string;
   let description: string;
-  let initialVersion: string;
-  let xplaneVersion: string;
-  let isPublic: boolean;
-  let isPrivate: boolean;
-  let isStored: boolean;
-  let dependencies: [string, string][];
-  let incompatibilities: [string, string][];
+  let packageTypeStr: string;
 
   try {
     packageId = req.body.packageId.trim().toLowerCase();
     packageName = req.body.packageName.trim();
-
-    packageTypeStr = req.body.packageType.trim().toLowerCase();
-
     description = req.body.description.trim();
-    initialVersion = req.body.initialVersion.trim().toLowerCase();
-    xplaneVersion = req.body.xplaneVersion.trim().toLowerCase();
+    packageTypeStr = req.body.packageType.trim().toLowerCase();
 
     checkType(packageId, 'string');
     checkType(packageName, 'string');
     checkType(packageTypeStr, 'string');
     checkType(description, 'string');
-    checkType(initialVersion, 'string');
-    checkType(xplaneVersion, 'string');
-
-    isPublic = typeof req.body.isPublic === 'string' && req.body.isPublic === 'true';
-    isPrivate = typeof req.body.isPrivate === 'string' && req.body.isPrivate === 'true';
-    isStored = typeof req.body.isStored === 'string' && req.body.isStored === 'true';
-
-    dependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
-    incompatibilities = typeof req.body.incompatibilities === 'string' && JSON.parse(req.body.incompatibilities);
   } catch {
     routeLogger.info('Missing form data (missing_form_data)');
     return res
@@ -197,13 +177,6 @@ route.post('/new', upload.single('file'), async (req, res) => {
     return res
       .status(400)
       .send('invalid_package_type');
-  }
-
-  if (!file) {
-    routeLogger.info('No file uploaded (no_file)');
-    return res
-      .status(400)
-      .send('no_file');
   }
 
   if (packageId.length < 6) {
@@ -251,27 +224,6 @@ route.post('/new', upload.single('file'), async (req, res) => {
       .send('long_desc');
   }
 
-  if (initialVersion.length < 1) {
-    routeLogger.info('No version provided (no_version)');
-    return res
-      .status(400)
-      .send('no_version');
-  }
-  else if (initialVersion.length > 15) {
-    routeLogger.info('Version too long (long_version)');
-    return res
-      .status(400)
-      .send('long_version');
-  }
-
-  const version = isVersionValid(initialVersion);
-  if (!version) {
-    routeLogger.info('Invalid version provided (invalid_verison)');
-    return res
-      .status(400)
-      .send('invalid_verison');
-  }
-
   if (validators.isProfane(packageId)) {
     routeLogger.info('Profane package id provided (profane_id)');
     return res
@@ -289,13 +241,6 @@ route.post('/new', upload.single('file'), async (req, res) => {
     return res
       .status(400)
       .send('profane_desc');
-  }
-
-  if (isPublic && (isPrivate || !isStored)) {
-    routeLogger.info('Invalid access config (invalid_access_config)');
-    return res
-      .status(400)
-      .send('invalid_access_config');
   }
 
   try {
@@ -316,29 +261,147 @@ route.post('/new', upload.single('file'), async (req, res) => {
         .status(400)
         .send('name_in_use');
     }
+
+    await packageDatabase.addPackage(packageId, packageName, author, description, packageType);
+    routeLogger.info('Registered new package in database');
+
+    res.sendStatus(204);
   } catch (e) {
     routeLogger.error(e);
     return res.sendStatus(500);
+  } 
+});
+
+route.post('/upload', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  const author = req.user as Author;
+
+  const routeLogger = logger.child({
+    ip: req.socket.remoteAddress,
+    authorId: author.id,
+    body: req.body,
+    route: '/packages/upload'
+  });
+  routeLogger.info('New version upload request, will validate fields');
+
+  let packageId: string;
+  let packageVersion: string;
+  let xplaneSelectionStr: string;
+  let isPublic: boolean;
+  let isPrivate: boolean;
+  let isStored: boolean;
+  let dependencies: [string, string][];
+  let incompatibilities: [string, string][];
+
+  try {
+    packageId = req.body.packageId.trim().toLowerCase();
+
+    packageVersion = req.body.packageVersion.trim().toLowerCase();
+    xplaneSelectionStr = req.body.xplaneSelection.trim().toLowerCase();
+
+    checkType(packageId, 'string');
+    checkType(packageVersion, 'string');
+    checkType(xplaneSelectionStr, 'string');
+
+    isPublic = typeof req.body.isPublic === 'string' && req.body.isPublic === 'true';
+    isPrivate = typeof req.body.isPrivate === 'string' && req.body.isPrivate === 'true';
+    isStored = typeof req.body.isStored === 'string' && req.body.isStored === 'true';
+
+    dependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
+    incompatibilities = typeof req.body.incompatibilities === 'string' && JSON.parse(req.body.incompatibilities);
+  } catch {
+    routeLogger.info('Missing form data (missing_form_data)');
+    return res
+      .status(400)
+      .send('missing_form_data');
+  }
+
+  if (!file) {
+    routeLogger.info('No file uploaded (no_file)');
+    return res
+      .status(400)
+      .send('no_file');
+  }
+
+  if (packageId.length < 6) {
+    routeLogger.info('Package id too short (short_id)');
+    return res
+      .status(400)
+      .send('short_id');
+  }
+  else if (packageId.length > 32) {
+    routeLogger.info('Package id too long (long_id)');
+    return res
+      .status(400)
+      .send('long_id');
+  }
+  else if (!validateId(packageId)) { 
+    routeLogger.info('Invalid package id (invalid_id)');
+    return res
+      .status(400)
+      .send('invalid_id');
+  }
+
+  if (packageVersion.length < 1) {
+    routeLogger.info('No version provided (no_version)');
+    return res
+      .status(400)
+      .send('no_version');
+  }
+  else if (packageVersion.length > 15) {
+    routeLogger.info('Version too long (long_version)');
+    return res
+      .status(400)
+      .send('long_version');
+  }
+
+  const version = Version.fromString(packageVersion);
+  if (!version) {
+    routeLogger.info('Invalid version provided (invalid_verison)');
+    return res
+      .status(400)
+      .send('invalid_verison');
+  }
+
+  if (isPublic && (isPrivate || !isStored)) {
+    routeLogger.info('Invalid access config (invalid_access_config)');
+    return res
+      .status(400)
+      .send('invalid_access_config');
+  }
+
+  const xplaneSelection = new SelectionChecker(xplaneSelectionStr);
+  if (!xplaneSelection.isValid) {
+    routeLogger.info('Invalid X-Plane selection (invalid_xp_sel)');
+    return res
+      .status(400)
+      .send('invalid_xp_sel');
   }
 
   try {
-    await packageDatabase.addPackage(packageId, packageName, author, description, packageType);
-    routeLogger.info('Registered package in the database');
+    const authorHasPackage = await author.hasPackage(packageId);
+
+    if (!authorHasPackage) 
+      return res.sendStatus(403);
+
+    const authorPackages = await author.getPackages();
+    const thisPackage = authorPackages.find(p => p.packageId === packageId) as PackageData;
 
     await packageDatabase.addPackageVersion(packageId, version, {
       isPublic: isPublic,
       isStored: isStored,
       privateKey: !isPublic && isStored ? await privateKeyNanoId(32) : void (0)
     }, dependencies, incompatibilities);
-    routeLogger.info('Registered initial version in the database');
+
+    routeLogger.info('Registered package version in database');
 
     const fileProcessorData: FileProcessorData = {
       zipFileLoc: file.path,
       authorId: author.id,
-      packageName,
+      packageName: thisPackage.packageName,
       packageId,
-      packageVersion: version,
-      packageType,
+      packageVersion: version.toString(),
+      packageType: thisPackage.packageType,
       dependencies,
       incompatibilities,
       accessConfig: {
@@ -350,160 +413,19 @@ route.post('/new', upload.single('file'), async (req, res) => {
 
     const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });
     worker.on('message', v => {
-      if (v === 'started')
+      if (v === 'started') {
+        routeLogger.info('Package processing started');
         res.sendStatus(204);
+      }
+    });
+
+    worker.on('error', err => {
+      routeLogger.error(err, 'Error while processing package');
     });
   } catch (e) {
     routeLogger.error(e);
     return res.sendStatus(500);
   }
-});
-
-route.post('/newversion', upload.single('file'), async (req, res) => {
-  res.sendStatus(503);
-  // const author = req.user as Author;
-  // const file = req.file;
-  
-  // let packageId: string;
-  // let versionString: string;
-  // let xplaneVersion: string;
-  // let isPublic: boolean;
-  // let isPrivate: boolean;
-  // let isStored: boolean;
-  // let dependencies: [string, string][];
-  // let incompatibilities: [string, string][];
-
-  // let version: Version | undefined;
-
-  // let packageName: string;
-  // let packageType: PackageType;
-  
-  // try {
-  //   packageId = req.body.packageId.trim().toLowerCase();
-  //   versionString = req.body.versionString.trim().toLowerCase();
-  //   xplaneVersion = req.body.xplaneVersion.trim().toLowerCase();
-
-  //   checkType(packageId, 'string');
-  //   checkType(versionString, 'string');
-  //   checkType(xplaneVersion, 'string');
-
-  //   isPublic = typeof req.body.isPublic === 'string' && req.body.isPublic === 'true';
-  //   isPrivate = typeof req.body.isPrivate === 'string' && req.body.isPrivate === 'true';
-  //   isStored = typeof req.body.isStored === 'string' && req.body.isStored === 'true';
-
-  //   dependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
-  //   incompatibilities = typeof req.body.incompatibilities === 'string' && JSON.parse(req.body.incompatibilities);
-  // } catch (e) {
-  //   console.error(e);
-  //   return res
-  //     .status(400)
-  //     .send('missing_form_data');
-  // }
-
-  // if (!file)
-  //   return res
-  //     .status(400)
-  //     .send('no_file');
-
-  // try {
-  //   const authorPackages = await author.getPackages();
-  //   const thisPackage = await authorPackages.find(d => d.packageId === packageId);
-  //   if (!packageId || !thisPackage)
-  //     return res
-  //       .sendStatus(403);
-    
-  //   packageName = thisPackage.packageName as string;
-  //   packageType = thisPackage.packageType;
-
-  //   if (versionString.length < 1)
-  //     return res
-  //       .status(400)
-  //       .send('no_version');
-  //   else if (versionString.length > 15)
-  //     return res
-  //       .status(400)
-  //       .send('long_version');
-
-  //   version = isVersionValid(versionString);
-  //   if (!version)
-  //     return res
-  //       .status(400)
-  //       .send('invalid_verison');
-
-  //   const versionExists = await packageDatabase.versionExists(packageId, version);
-  //   if (versionExists)
-  //     return res
-  //       .status(400)
-  //       .send('version_exists');
-  // } catch (e) {
-  //   console.error(e);
-  //   return res.sendStatus(500);
-  // }
-
-  // if (isPublic && (isPrivate || !isStored))
-  //   return res
-  //     .status(400)
-  //     .send('invalid_access_config');
-  
-  // const [n, awsId] = await Promise.all([nanoid(32), nanoid(64)]);
-
-  // // const destFile = path.join(os.tmpdir(), 'unzipped', n, packageId + '.zip');
-  // // const outFile = path.join(os.tmpdir(), 'xpkg', n, packageId + '.xpkg');
-  // const destFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped', n);
-  // const outFile = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files', n, awsId + '.xpkg');
-
-  // try {
-  //   await decompress(file.path, destFile);
-    
-  //   // Note that destFile is the unzipped file, NOT the target zip file, outFile is the target zip
-  //   await fileProcessor(
-  //     destFile,
-  //     outFile,
-  //     author.id,
-  //     author.name,
-  //     packageName,
-  //     packageId,
-  //     version,
-  //     packageType,
-  //     dependencies,
-  //     incompatibilities,
-  //   );
-  // } catch (e) {
-  //   console.error(e);
-  //   return res
-  //     .status(422)
-  //     .send('invalid_package');
-  // }
-    
-  // // Upload the package and add it to the database
-  // try {
-  //   const fileBuffer = await fsProm.readFile(outFile);
-  //   const hashSum = crypto.createHash('sha256');
-  //   hashSum.update(fileBuffer);
-  //   const hash = hashSum.digest('hex');
-
-  //   if (isStored) {
-  //     const putCmd = new PutObjectCommand({
-  //       Bucket: bucketName,
-  //       Key: awsId,
-  //       Body: fileBuffer
-  //     });
-  //     await s3client.send(putCmd);
-  //   }
-
-  //   await packageDatabase.addPackageVersion(packageId, version, hash, isStored ? `https://xpkgregistrydev.s3.us-east-2.amazonaws.com/${awsId}` : 'NOT_STORED', {
-  //     isPublic: isPublic,
-  //     isStored: isStored,
-  //     privateKey: !isPublic && isStored ? await privateKeyNanoId(32) : void (0)
-  //   }, dependencies, incompatibilities);
-
-  //   author.sendEmail(`X-Pkg: '${packageName}' new version uploaded`, `Your package '${packageName}' (${packageId}) had a new version added to it.\n\nNew version: ${versionStr(version)}\nChecksum: ${hash.toUpperCase()}`);
-    
-  //   return res.sendStatus(204);
-  // } catch (e) {
-  //   console.error(e);
-  //   return res.sendStatus(500);
-  // }
 });
 
 /**

@@ -27,7 +27,7 @@ type InternalPackageData = {
 import Author from '../../author.js';
 import InvalidPackageError from '../../errors/invalidPackageError.js';
 import NoSuchPackageError from '../../errors/noSuchPackageError.js';
-import { Version, versionStr } from '../../util/version.js';
+import Version from '../../util/version.js';
 import PackageDatabase, { PackageData, PackageType, VersionData, VersionStatus } from '../packageDatabase.js';
 import JsonDB from './jsonDB.js';
 
@@ -92,7 +92,7 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
     privateKey?: string;
   }, dependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
     packageId = packageId.trim().toLowerCase();
-    const versionString = versionStr(version);
+    const versionString = version.toString();
 
     if (accessConfig.isPublic && !accessConfig.isStored)
       throw new InvalidPackageError('published_private_version');
@@ -184,21 +184,20 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
    * 
    * @async
    * @param {string} packageId The id of the package to get the version data for.
-   * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package.
-   * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
+   * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package. If no versions exist, an empty array is returned.
+   * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
   async getVersionData(packageId: string): Promise<VersionData[]>;
 
   async getVersionData(packageId: string, version?: Version): Promise<VersionData | VersionData[]> {
     packageId = packageId.trim().toLowerCase();
     const pkg = this._data.find(p => p.packageId == packageId);
-
-    if (!pkg)
-      throw new NoSuchPackageError(packageId);
     
-    if (typeof version !== 'undefined') {
-      const versionString = versionStr(version);
+    if (!pkg) 
+      throw new NoSuchPackageError(packageId);
 
+    if (typeof version !== 'undefined') {
+      const versionString = version.toString();
       const vData = pkg.versions.find(v => v.version === versionString);
       const retData = JSON.parse(JSON.stringify(vData)) as unknown as VersionData;
       retData.uploadDate = new Date(vData?.uploadDate as number);
@@ -242,7 +241,7 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
     if (!pkg)
       throw new NoSuchPackageError(packageId);
 
-    const versionString = versionStr(version);
+    const versionString = version.toString();
     return !!pkg.versions.find(v => v.version === versionString);
   }
 
@@ -320,7 +319,7 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
     if (!pkg)
       throw new NoSuchPackageError(packageId);
     
-    const versionString = versionStr(version);
+    const versionString = version.toString();
     const pkgVersion = pkg.versions.find(v => v.version === versionString);
 
     if (!pkgVersion)
@@ -349,7 +348,7 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
     if (!pkg)
       throw new NoSuchPackageError(packageId);
     
-    const versionString = versionStr(version);
+    const versionString = version.toString();
     const pkgVersion = pkg.versions.find(v => v.version === versionString);
 
     if (!pkgVersion)

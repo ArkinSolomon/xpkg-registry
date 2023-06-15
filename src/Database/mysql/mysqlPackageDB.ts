@@ -29,7 +29,7 @@ import Author from '../../author.js';
 import MysqlDB from './mysqlDB.js';
 import PackageDatabase, { PackageData, PackageType, VersionData, VersionStatus } from '../packageDatabase.js';
 import { format } from 'mysql2';
-import { versionStr, Version } from '../../util/version.js';
+import Version from '../../util/version.js';
 import InvalidPackageError from '../../errors/invalidPackageError.js';
 import NoSuchPackageError from '../../errors/noSuchPackageError.js';
 
@@ -90,7 +90,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
   }, dependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
     packageId = packageId.trim().toLowerCase();
 
-    const versionString = versionStr(version);
+    const versionString = version.toString();
 
     if (accessConfig.isPublic && !accessConfig.isStored)
       throw new InvalidPackageError('published_private_version');
@@ -183,16 +183,16 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * 
    * @async
    * @param {string} packageId The id of the package to get the version data for.
-   * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package.
-   * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
+   * @returns {Promise<VersionData[]>} A promise which resolves to all of the version data for all versions of the specified package. If no versions exist, an empty array is returned.
+   * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
   async getVersionData(packageId: string): Promise<VersionData[]>;
 
   async getVersionData(packageId: string, version?: Version): Promise<VersionData | VersionData[]> {
     packageId = packageId.trim().toLowerCase();
 
-    if (typeof version !== 'undefined') {
-      const versionString = versionStr(version);
+    if (version) {
+      const versionString = version.toString();
 
       const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate, status FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
       const dependencyQuery = format('SELECT relationId, relationVersion FROM dependencies WHERE packageId=? AND version=?;', [packageId, versionString]);
@@ -219,10 +219,6 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     } else {
       const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate, status FROM versions WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
-
-      // If the package has been uploaded it *must* have an initial version.
-      if (data.length === 0)
-        throw new NoSuchPackageError(packageId);
 
       data.forEach(async (version: VersionData & { 'HEX(hash)': string | undefined; }) => {
         version.hash = version['HEX(hash)'] as string;
@@ -348,7 +344,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    */
   async resolveVersionData(packageId: string, version: Version, hash: string, loc: string): Promise<void>{ 
     packageId = packageId.trim().toLowerCase();
-    const versionString = versionStr(version);
+    const versionString = version.toString();
 
     const query = format('UPDATE versions SET hash=UNHEX(?), loc=?, status=? WHERE packageId=? AND version=?;', [hash, loc, VersionStatus.Processed, packageId, versionString]);
 
@@ -374,7 +370,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    */
   async updatePackageStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void> {
     packageId = packageId.trim().toLowerCase();
-    const versionString = versionStr(version);
+    const versionString = version.toString();
 
     const query = format('UPDATE versions SET status=? WHERE packageId=? AND version=?;', [newStatus, packageId, versionString]);
 

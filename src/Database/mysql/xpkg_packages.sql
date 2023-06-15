@@ -1,5 +1,4 @@
--- Note that table setup isn't done automatically, it must be
--- run manually before using SQL tables.
+-- This file is not run by default and needs to be run manually
 
 -- -------------------------------------------------------------
 -- TablePlus 5.3.8(500)
@@ -7,8 +6,9 @@
 -- https://tableplus.com/
 --
 -- Database: xpkg_packages
--- Generation Time: 2023-06-13 01:16:05.5620
+-- Generation Time: 2023-06-15 05:29:05.6860
 -- -------------------------------------------------------------
+
 
 /*!40101 SET @OLD_CHARACTER_SET_CLIENT=@@CHARACTER_SET_CLIENT */;
 /*!40101 SET @OLD_CHARACTER_SET_RESULTS=@@CHARACTER_SET_RESULTS */;
@@ -28,7 +28,9 @@ CREATE TABLE `authors` (
   `session` varchar(16) NOT NULL,
   `verified` tinyint(1) NOT NULL DEFAULT '0',
   `checkName` varchar(32) NOT NULL,
-  `lastChange` date DEFAULT NULL
+  `lastChange` date DEFAULT NULL,
+  `usedStorage` bigint NOT NULL DEFAULT '0',
+  `totalStorage` bigint DEFAULT '536870912'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 CREATE TABLE `dependencies` (
@@ -72,7 +74,9 @@ CREATE TABLE `versions` (
   `isPublic` tinyint(1) NOT NULL,
   `isStored` tinyint(1) NOT NULL,
   `status` varchar(32) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci NOT NULL DEFAULT 'processing',
-  `version` varchar(15) NOT NULL
+  `version` varchar(15) NOT NULL,
+  `size` bigint NOT NULL DEFAULT '0',
+  `installedSize` bigint NOT NULL DEFAULT '0'
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
 
 

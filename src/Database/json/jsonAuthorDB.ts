@@ -62,7 +62,9 @@ class JsonAuthorDB extends JsonDB<AuthorData & InternalAuthorData> implements Au
       hash: passwordHash,
       verified: false,
       creationDate: Date.now(),
-      authorSession: await nanoid(16)
+      authorSession: await nanoid(16),
+      usedStorage: 0,
+      totalStorage: 536870912
     });
     await this._save();
   }
@@ -216,6 +218,32 @@ class JsonAuthorDB extends JsonDB<AuthorData & InternalAuthorData> implements Au
       throw new NoSuchAccountError('authorId', authorId);
     
     return author.verified;
+  }
+
+  /**
+   * Set the amount of storage the author has used. Does not check if the author is allowed to use that much storage.
+   * 
+   * @async
+   * @param {string} authorId The id of the author who's used storage to set.
+   * @param {number} size The amount of storage to set as used, in bytes.
+   * @returns {Promise<void>} A promise which resolves when the database has been updated with the new used storage.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+   */
+  async setUsedStorage(authorId: string, size: number): Promise<void> {
+    throw new Error('NOT IMPLEMENTED');
+  }
+
+  /**
+   * Set the amount of total storage the author has. 
+   * 
+   * @async
+   * @param {string} authorId The id of the author who's storage to set.
+   * @param {number} size The total storage the author has, in bytes.
+   * @returns {Promise<void>} A promise which resolves when the storage has been set.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+   */
+  async setTotalStorage(authorId: string, size: number): Promise<void> {
+    throw new Error('NOT IMPLEMENTED');
   }
 }
 

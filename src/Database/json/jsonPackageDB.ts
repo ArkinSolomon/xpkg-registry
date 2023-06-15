@@ -112,7 +112,9 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
       privateKey: accessConfig.privateKey || '',
       status: VersionStatus.Processing,
       dependencies,
-      incompatibilities
+      incompatibilities,
+      size: 0,
+      installedSize: 0
     };
 
     const pkg = this._data.find(p => p.packageId === packageId);
@@ -308,10 +310,12 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
    * @param {Version} version The version of the package to update the version data of.
    * @param {string} hash The sha256 checksum of the package.
    * @param {string} loc The URL of the package, or "NOT_STORED" if the package is not stored.
+   * @param {number} size The size of the xpkg file in bytes.
+   * @param {number} installedSize The size of the unzipped xpkg file in bytes.
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
    * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
    */
-  async resolveVersionData(packageId: string, version: Version, hash: string, loc: string): Promise<void> {
+  async resolveVersionData(packageId: string, version: Version, hash: string, loc: string, size: number, installedSize: number): Promise<void> {
     packageId = packageId.trim().toLowerCase();
 
     const pkg = this._data.find(p => p.packageId === packageId);
@@ -327,6 +331,8 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
     
     pkgVersion.hash = hash.toUpperCase();
     pkgVersion.loc = loc;
+    pkgVersion.size = size;
+    pkgVersion.installedSize = installedSize;
     return this._save();
   }
 

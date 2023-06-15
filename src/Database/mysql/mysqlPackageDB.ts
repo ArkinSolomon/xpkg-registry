@@ -194,7 +194,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
     if (version) {
       const versionString = version.toString();
 
-      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate, status FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
+      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate, status, size, installedSize FROM versions WHERE packageId=? AND version=?;', [packageId, versionString]);
       const dependencyQuery = format('SELECT relationId, relationVersion FROM dependencies WHERE packageId=? AND version=?;', [packageId, versionString]);
       const incompatibilityQuery = format('SELECT relationId, relationVersion FROM incompatibilities WHERE packageId=? AND version=?;', [packageId, versionString]);
 
@@ -217,7 +217,7 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
 
       return versionData;
     } else {
-      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate, status FROM versions WHERE packageId=?;', [packageId]);
+      const query = format('SELECT packageId, version, HEX(hash), isPublic, isStored, loc, privateKey, installs, uploadDate, status, size, installedSize FROM versions WHERE packageId=?;', [packageId]);
       const data = await this._query(query);
 
       data.forEach(async (version: VersionData & { 'HEX(hash)': string | undefined; }) => {
@@ -339,14 +339,16 @@ class MysqlPackageDB extends MysqlDB implements PackageDatabase {
    * @param {Version} version The version of the package to update the version data of.
    * @param {string} hash The sha256 checksum of the package.
    * @param {string} loc The URL of the package, or "NOT_STORED" if the package is not stored.
+   * @param {number} size The size of the xpkg file in bytes.
+   * @param {number} installedSize The size of the unzipped xpkg file in bytes.
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
    * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
    */
-  async resolveVersionData(packageId: string, version: Version, hash: string, loc: string): Promise<void>{ 
+  async resolveVersionData(packageId: string, version: Version, hash: string, loc: string, size: number, installedSize: number): Promise<void> { 
     packageId = packageId.trim().toLowerCase();
     const versionString = version.toString();
 
-    const query = format('UPDATE versions SET hash=UNHEX(?), loc=?, status=? WHERE packageId=? AND version=?;', [hash, loc, VersionStatus.Processed, packageId, versionString]);
+    const query = format('UPDATE versions SET hash=UNHEX(?), loc=?, status=?, size=?, installedSize=? WHERE packageId=? AND version=?;', [hash, loc, VersionStatus.Processed, size, installedSize, packageId, versionString]);
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, exists] = await Promise.all([

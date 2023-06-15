@@ -42,6 +42,8 @@ export enum VersionStatus {
   FailedNoFileDir = 'failed_no_file_dir', // No directory with the package id present
   FailedManifestExists = 'failed_manifest_exists', // Can not have a manifest.json file
   FailedInvalidFileTypes = 'failed_invalid_file_types', // Can not have symbolic links or executables
+  FailedFileTooLarge = 'failed_file_too_large', // Unzipped file too big
+  FailedNotEnoughSpace = 'failed_not_enough_space', // Not enough space in author's storage
   FailedServer = 'failed_server', // Server error
   Aborted = 'aborted' // Job took too long
 }
@@ -84,6 +86,8 @@ export type PackageData = {
  * @property {VersionStatus} VersionStatus The status of the package.
  * @property {[string][string][]} dependencies The dependencies of the version.
  * @property {[string][string][]} incompatibilities The incompatibilities of the version.
+ * @property {number} size The size of the xpkg file in bytes.
+ * @property {number} installedSize The size of the xpkg file unzipped in bytes.
  */
 export type VersionData = {
   packageId: string;
@@ -98,6 +102,8 @@ export type VersionData = {
   status: VersionStatus;
   dependencies: [string, string][];
   incompatibilities: [string, string][];
+  size: number;
+  installedSize: number;
 };
 
 /**
@@ -261,10 +267,12 @@ interface PackageDatabase {
    * @param {Version} version The version of the package to update the version data of.
    * @param {string} hash The sha256 checksum of the package.
    * @param {string} loc The URL of the package, or "NOT_STORED" if the package is not stored.
+   * @param {number} size The size of the xpkg file in bytes.
+   * @param {number} installedSize The size of the unzipped xpkg file in bytes.
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
    * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
    */
-  resolveVersionData(packageId: string, version: Version, hash: string, loc: string): Promise<void>;
+  resolveVersionData(packageId: string, version: Version, hash: string, loc: string, size: number, unzippedSize: number): Promise<void>;
 
   /**
    * Update the status of a specific package version.

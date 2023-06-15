@@ -112,8 +112,28 @@ const jobData: JobData = {
 const jobsService = new JobsServiceManager(jobData, logger, abort);
 await jobsService.waitForAuthorization();
 
+let fileSize = 0;
+let hasUsedStorage = false;
 try {
-  logger.info('Decompressing zip file');
+  logger.debug('Calculating unzipped file size');
+  const unzippedSize =await getUnzippedFileSize(zipFileLoc);
+  logger.setBindings({
+    unzippedSize
+  });
+  logger.debug('Calculated unzipped file size');
+
+  if (unzippedSize > 17179869184) {
+    logger.info('Unzipped zip file is greater than 16 gibibytes');
+    await Promise.all([
+      fs.rm(zipFileLoc, { force: true }),
+      packageDatabase.updatePackageStatus(packageId, packageVersion, VersionStatus.FailedFileTooLarge),
+      sendFailureEmail(VersionStatus.FailedFileTooLarge)
+    ]);
+    logger.debug('Deleted zip file, updated database, and notified author');
+    process.exit(0);
+  }
+
+  logger.debug('Decompressing zip file');
   const hasMacOSX = await new Promise<boolean>((resolve, reject) => {
     const searchProcess = childProcess.exec(`unzip -l "${zipFileLoc}" | grep "__MACOSX" -c -m 1`);
 
@@ -131,20 +151,20 @@ try {
       resolve();
     });
   });
-  logger.info('Zip file decompressed');
+  logger.debug('Zip file decompressed');
   await fs.rm(zipFileLoc);
-  logger.info('Zip file deleted');
+  logger.debug('Zip file deleted');
 
   originalUnzippedRoot = unzippedFileLoc;
   let files = await fs.readdir(unzippedFileLoc);
 
   // Insufficient permissions to delete __MACOSX directory, so just process the sub-folder
   if (hasMacOSX) {
-    logger.info('__MACOSX directory detected');
+    logger.debug('__MACOSX directory detected');
     if (files.length !== 1) {
       logger.info('Only __MACOSX file provided');
       await cleanupUnzippedFail(VersionStatus.FailedMACOSX);
-      process.exit(1);
+      process.exit(0);
     }
     
     const subFolderName = files[0];
@@ -156,13 +176,13 @@ try {
   if (!files.includes(packageId)) {
     logger.info('No directory with package id');
     await cleanupUnzippedFail(VersionStatus.FailedNoFileDir);
-    process.exit(1);
+    process.exit(0);
   }
 
   if (files.includes('manifest.json')) {
     logger.info('Manifest already exists');
     await cleanupUnzippedFail(VersionStatus.FailedManifestExists);
-    process.exit(1);
+    process.exit(0);
   }
   const manifestPath = path.join(unzippedFileLoc, 'manifest.json');
 
@@ -176,7 +196,7 @@ try {
     incompatibilities
   };
 
-  logger.info('Processing files');
+  logger.debug('Processing files');
   let hasSymbolicLink = false;
   if (await findTrueFile(unzippedFileLoc, (s, p) => {
 
@@ -192,7 +212,7 @@ try {
   })) {
     logger.info(`Invalid file type in package: ${hasSymbolicLink ? 'symbolic link' : 'executable'}`);
     await cleanupUnzippedFail(VersionStatus.FailedInvalidFileTypes);
-    process.exit(1);
+    process.exit(0);
   }
 
   await Promise.all([
@@ -207,7 +227,7 @@ try {
   const parent = path.resolve(xpkgFileLoc, '..');
   await fs.mkdir(parent, { recursive: true });
   
-  logger.info('Done processing files, zipping xpkg file');
+  logger.debug('Done processing files, zipping xpkg file');
 
   await new Promise<void>((resolve, reject) => {
     childProcess.exec(`zip -r "${xpkgFileLoc}" *`, {
@@ -219,21 +239,50 @@ try {
     });
   });
 
-  logger.info('Done zipping xpkg file');
+  logger.debug('Done zipping xpkg file');
   await fs.rm(originalUnzippedRoot, {recursive: true, force: true});
-  logger.info('Deleted unzipped files');
+  logger.debug('Deleted unzipped files');
 
-  logger.info('Generating file hash');
+  logger.debug('Generating file hash');
   const hashStream = createReadStream(xpkgFileLoc);
   const hash = await hasha.fromStream(hashStream, { algorithm: 'sha256', encoding: 'hex' });
   logger.setBindings({ hash });
-  logger.info('Generated xpkg file hash');
+  logger.debug('Generated xpkg file hash');
+
+  fileSize = (await fs.stat(xpkgFileLoc)).size;
+  logger.setBindings({
+    fileSize
+  });
+  logger.debug('Calculated xpkg file size');
+
+  logger.debug('Calculating installed size');
+  const installedSize = await getUnzippedFileSize(xpkgFileLoc);
+  logger.setBindings({
+    installedSize
+  });
+  logger.debug('Calculated installed size');
+
+  logger.debug('Trying to consume storage');
+  const canConsume = await author.tryConsumeStorage(fileSize);
+
+  if (!canConsume) {
+    logger.info('Author does not have enough space to store package');
+    await Promise.all([
+      fs.rm(xpkgFileLoc, { force: true }),
+      packageDatabase.updatePackageStatus(packageId, packageVersion, VersionStatus.FailedNotEnoughSpace),
+      sendFailureEmail(VersionStatus.FailedNotEnoughSpace)
+    ]);
+    logger.debug('Deleted xpkg file, updated database, and notified author');
+    process.exit(0);
+  } 
+  hasUsedStorage = true;
+  logger.debug('Consumed storage');
 
   const s3client = new S3Client({
     region: 'us-east-2'
   });
 
-  logger.info('Uploading package version to S3');
+  logger.debug('Uploading package version to S3');
   const fileStream = createReadStream(xpkgFileLoc);
   let privateUrl;
   if (accessConfig.isStored) {
@@ -260,22 +309,34 @@ try {
     // Get a URL that expires in a day
     privateUrl = await getSignedUrl(s3client, getCmd, { expiresIn: 24 * 60 * 60 }) as string;
   }
-
-  logger.info('Uploaded package to S3');
-  await packageDatabase.resolveVersionData(packageId, packageVersion, hash, accessConfig.isStored ? `https://d2cbjuk8vv1874.cloudfront.net/${awsId}` : 'NOT_STORED');
-  logger.info('Updated database with version');
+  
+  logger.debug('Uploaded package to S3');
+  await packageDatabase.resolveVersionData(
+    packageId,
+    packageVersion,
+    hash,
+    accessConfig.isStored ? `https://d2cbjuk8vv1874.cloudfront.net/${awsId}` : 'NOT_STORED',
+    fileSize,
+    installedSize
+  );
+  logger.debug('Updated database with version');
   await fs.unlink(xpkgFileLoc);
-  logger.info('Deleted local xpkg file, sending job done to jobs service');
+  logger.debug('Deleted local xpkg file, sending job done to jobs service');
 
   if (accessConfig.isStored)
     await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}`);
   else 
     await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}\nLink: ${privateUrl}`);
 
-  logger.info('Author notified of process success, notifying jobs service');
+  logger.debug('Author notified of process success, notifying jobs service');
   await jobsService.completed();
   logger.info('Worker thread completed');
 } catch (e) {
+  if (hasUsedStorage) {
+    logger.info('Error occured after storage claimed, attempting to free');
+    await author.freeStorage(fileSize);
+  }
+
   if (jobsService.aborted)
     logger.warn(e, 'Error occured after abortion');
   else {
@@ -388,6 +449,8 @@ function getVersionStatusReason(versionStatus: VersionStatus): string {
   case VersionStatus.FailedManifestExists:  return 'You can not have a file named "manifest.json" in your zip folder root.';
   case VersionStatus.FailedNoFileDir: return 'No directory was found with the package id.';
   case VersionStatus.FailedServer: return 'The server failed to process the file, please try again later.';
+  case VersionStatus.FailedFileTooLarge: return 'The zip file uploaded exceeded 16 gibibytes when unzipped.';
+  case VersionStatus.FailedNotEnoughSpace: return 'You do not have enough storage space to store this package.';
   case VersionStatus.Aborted: return 'The process was aborted for an unknown reason.';
   case VersionStatus.Removed:
   case VersionStatus.Processed:
@@ -395,4 +458,20 @@ function getVersionStatusReason(versionStatus: VersionStatus): string {
     return 'If you see this sentence, something broke.';
   default: return '<<Unknown Reason>>';
   }
+}
+
+/**
+ * Get the size of an unzipped file in bytes.
+ * 
+ * @param {string} file The zip file to get the unzipped size of.
+ * @returns {Promise<number>} A promise which resolves to the size of the unzipped file in bytes, or rejects on error.
+ */
+function getUnzippedFileSize(file: string): Promise<number> {
+  return new Promise((resolve, reject) => {
+    childProcess.exec(`unzip -Zt ${file} | awk '{print $3}'`, (err, stdout) => {
+      if (err)
+        reject(err);
+      resolve(parseInt(stdout, 10));
+    });
+  });
 }

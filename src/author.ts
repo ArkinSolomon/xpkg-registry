@@ -61,6 +61,8 @@ export default class Author {
   private _email: string;
   private _verified: boolean;
   private _lastChange: Date;
+  private _usedStorage: number;
+  private _totalStorage: number;
 
   /**
    * Get the id of a user.
@@ -117,6 +119,24 @@ export default class Author {
   }
 
   /**
+   * The amount of storage the author has used, in bytes.
+   * 
+   * @returns {number} The amount of storage the author has used, in bytes.
+   */
+  get usedStorage(): number {
+    return this._usedStorage;
+  }
+
+  /**
+   * The amount of storage the author has in total, in bytes.
+   * 
+   * @returns {number} The amount of storage the author has in total, in bytes.
+   */
+  get totalStorage(): number {
+    return this._totalStorage;
+  }
+
+  /**
    * Create a new user explicitly.
    * 
    * @param {AuthorData} data The data of the author retrieved from the database.
@@ -127,6 +147,8 @@ export default class Author {
     this._email = data.authorEmail.toLowerCase().trim();
     this._verified = data.verified;
     this._lastChange = data.lastChange ?? new Date(0);
+    this._usedStorage = data.usedStorage;
+    this._totalStorage = data.totalStorage;
   }
 
   /**
@@ -145,7 +167,9 @@ export default class Author {
       authorId: id,
       authorName: name,
       authorEmail: email,
-      verified: false
+      verified: false,
+      usedStorage: 0,
+      totalStorage: 536870912
     });
     return author;
   }
@@ -270,6 +294,30 @@ export default class Author {
    */
   async sendEmail(subject: string, content: string): Promise<void> {
     return email(this._email, subject, content);
+  }
+
+  /**
+   * Try to consume some of the author's storage, if there is space.
+   * 
+   * @param {number} size The size of the storage to consume, in bytes.
+   * @returns {Promise<boolean>} A promise which resolves to true if the storage can be consumed and after the operation completes, or false if the storage can not be consumed. The promise is rejected if the operation fails.
+   */
+  async tryConsumeStorage(size: number): Promise<boolean> {
+    if (this._usedStorage + size > this.totalStorage)
+      return false;
+    await authorDatabase.setUsedStorage(this._id, this._usedStorage + size);
+    return true;
+  }
+  
+  /**
+   * Free up some of the author's used storage. The used storage is set to zero if trying to free more storage than the author has used.
+   * 
+   * @param {number} size The size of the storage to free, in bytes.
+   * @returns {Promise<void>} A promise which resolves once the storage has been marked as free.
+   */
+  async freeStorage(size: number): Promise<void> {
+    const newStorage = Math.max(this._usedStorage - size, 0);
+    await authorDatabase.setUsedStorage(this._id, newStorage);
   }
   
   /**

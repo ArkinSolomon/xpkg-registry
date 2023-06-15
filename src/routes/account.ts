@@ -29,8 +29,30 @@ route.get('/data', (req, res) => {
     route: '/account/data',
     authorId: author.id
   });
-  routeLogger.debug('Author requesting own data');
-  return res.json({ id: author.id, name: author.name, isVerified: author.isVerified });
+  routeLogger.debug('Author requesting their account data');
+
+  return res.json({
+    id: author.id,
+    name: author.name,
+    isVerified: author.isVerified,
+    usedStorage: author.usedStorage,
+    totalStorage: author.totalStorage
+  });
+});
+
+route.get('/storage', (req, res) => {
+  const author = req.user as Author;
+
+  const routeLogger = logger.child({
+    route: '/account/storage',
+    authorId: author.id
+  });
+  routeLogger.debug('Author requesting storage data');
+
+  return res.json({
+    usedStorage: author.usedStorage,
+    totalStorage: author.totalStorage
+  });
 });
 
 route.put('/changename', async (req, res) => {

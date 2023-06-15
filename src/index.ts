@@ -42,6 +42,10 @@ const app = Express();
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
+app.use(function (req, res, next) {
+  res.setHeader('X-Powered-By', 'Express, X-Pkg contributors, and you :)');
+  next();
+});
 app.use(pinoHttp({
   logger,
   serializers: {
@@ -133,7 +137,7 @@ app.use('/account', account);
  * @returns {Promise<void>} A promise which resolves when the operation completes.
  */
 async function updateData(): Promise<void> {
-  logger.info('Updating package data');
+  logger.debug('Updating package data');
   const data: (PackageData & { versions: string[]; })[] = [];
 
   const allPackageData = await packageDatabase.getPackageData();
@@ -152,7 +156,7 @@ async function updateData(): Promise<void> {
       data.push(newData);
   }
 
-  logger.info(`Package data updated, ${data.length || 'no'} package${data.length == 1 ? '' : 's'}`);
+  logger.debug(`Package data updated, ${data.length || 'no'} package${data.length == 1 ? '' : 's'}`);
   return fs.writeFile(storeFile, JSON.stringify({ data }), 'utf-8');
 }
 

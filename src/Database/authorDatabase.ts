@@ -14,7 +14,7 @@
  */
 
 /**
- * The data in the database for an author.
+ * The data that can exit the server for the author. All other author data should remain on the server.
  * 
  * @typedef {Object} AuthorData 
  * @property {string} authorId The id of the author.
@@ -22,6 +22,8 @@
  * @property {string} authorEmail The email of the author.
  * @property {boolean} verified True if the author has verified their email.
  * @property {Date} [lastChange] The point in time which the user last changed their email. Undefined if the user has never changed their name.
+ * @property {number} usedStorage The amount of storage the author has used.
+ * @property {number} totalStorage The total amount of storage that the author has.
  */
 export type AuthorData = {
   authorId: string;
@@ -29,6 +31,8 @@ export type AuthorData = {
   authorEmail: string;
   verified: boolean;
   lastChange?: Date;
+  usedStorage: number;
+  totalStorage: number;
 };
 
 /**
@@ -149,7 +153,30 @@ interface AuthorDatabase {
    * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
    */
   isVerified(authorId: string): Promise<boolean>;
+
+  /**
+   * Set the amount of storage the author has used. Does not check if the author is allowed to use that much storage.
+   * 
+   * @async
+   * @name AuthorDatabase#setUsedStorage
+   * @param {string} authorId The id of the author who's used storage to set.
+   * @param {number} size The amount of storage to set as used, in bytes.
+   * @returns {Promise<void>} A promise which resolves when the database has been updated with the new used storage.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+   */
+  setUsedStorage(authorId: string, size: number): Promise<void>;
+
+  /**
+   * Set the amount of total storage the author has. 
+   * 
+   * @async
+   * @name AuthorDatabase#setTotalStorage
+   * @param {string} authorId The id of the author who's storage to set.
+   * @param {number} size The total storage the author has, in bytes.
+   * @returns {Promise<void>} A promise which resolves when the storage has been set.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+   */
+  setTotalStorage(authorId: string, size: number): Promise<void>;
 }
 
-// We have to seperate the export because EsLint gets mad
 export default AuthorDatabase;

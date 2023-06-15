@@ -103,7 +103,7 @@ class MysqlAuthorDB extends MysqlDB implements AuthorDatabase {
   async getAuthor(authorId: string): Promise<AuthorData> {
     authorId = authorId.trim().toLowerCase();
 
-    const query = format('SELECT authorId, authorName, authorEmail, verified, lastChange FROM authors WHERE authorId=?;', [authorId]);
+    const query = format('SELECT authorId, authorName, authorEmail, verified, lastChange, usedStorage, totalStorage FROM authors WHERE authorId=?;', [authorId]);
     const data = await this._query(query);
     if (data.length !== 1)
       throw new NoSuchAccountError('authorId', authorId);
@@ -233,6 +233,46 @@ class MysqlAuthorDB extends MysqlDB implements AuthorDatabase {
       throw new NoSuchAccountError('authorId', authorId);
 
     return data[0].verified;
+  }
+
+  /**
+   * Set the amount of storage the author has used. Does not check if the author is allowed to use that much storage.
+   * 
+   * @async
+   * @param {string} authorId The id of the author who's used storage to set.
+   * @param {number} size The amount of storage to set as used, in bytes.
+   * @returns {Promise<void>} A promise which resolves when the database has been updated with the new used storage.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+   */
+  async setUsedStorage(authorId: string, size: number): Promise<void> {
+    authorId = authorId.trim();
+
+    const query = format('UPDATE authors SET usedStorage=? WHERE authorId=?;', [size, authorId]);
+    const data = await this._query(query);
+
+    const { affectedRows } = (data as unknown as { affectedRows: number; });
+    if (affectedRows !== 1) 
+      throw new NoSuchAccountError(authorId, 'authorId');
+  }
+
+  /**
+   * Set the amount of total storage the author has. 
+   * 
+   * @async
+   * @param {string} authorId The id of the author who's storage to set.
+   * @param {number} size The total storage the author has, in bytes.
+   * @returns {Promise<void>} A promise which resolves when the storage has been set.
+   * @throws {NoSuchAccountError} Error thrown if an author does not exist with the given id. 
+   */
+  async setTotalStorage(authorId: string, size: number): Promise<void> {
+    authorId = authorId.trim();
+
+    const query = format('UPDATE authors SET totalStorage=? WHERE authorId=?;', [size, authorId]);
+    const data = await this._query(query);
+
+    const { affectedRows } = (data as unknown as { affectedRows: number; });
+    if (affectedRows !== 1) 
+      throw new NoSuchAccountError(authorId, 'authorId');
   }
 }
 

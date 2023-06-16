@@ -21,7 +21,7 @@ import fs from 'fs';
 import Author from '../author.js';
 import * as validators from '../util/validators.js';
 import Version from '../util/version.js';
-import { PackageData, PackageType } from '../database/packageDatabase.js';
+import { PackageData, PackageType, VersionStatus } from '../database/packageDatabase.js';
 import { packageDatabase } from '../database/databases.js';
 import { FileProcessorData } from '../workers/fileProcessor.js';
 import logger from '../logger.js';
@@ -30,6 +30,8 @@ import { rm } from 'fs/promises';
 import { customAlphabet } from 'nanoid/async';
 import { isMainThread } from 'worker_threads';
 import SelectionChecker from '../util/selectionChecker.js';
+import NoSuchPackageError from '../errors/noSuchPackageError.js';
+import InvalidPackageError from '../errors/invalidPackageError.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -47,7 +49,7 @@ const FILE_PROCESSOR_WORKER_PATH = path.resolve('.', 'dist', 'workers', 'filePro
 export const unzippedFilesLocation = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped');
 export const xpkgFilesLocation = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files');
 
-const privateKeyNanoId = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
+const privateKeyNanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
 
 route.get('/', (_, res) => {
   res.sendFile(storeFile);
@@ -81,7 +83,6 @@ route.get('/:packageId/:version', async (req, res) => {
     return res.sendStatus(404);
   }
 });
-
 
 route.put('/description', async (req, res) => {
   const author = req.user as Author;
@@ -282,7 +283,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     body: req.body,
     route: '/packages/upload'
   });
-  routeLogger.info('New version upload request, will validate fields');
+  routeLogger.debug('New version upload request, will validate fields');
 
   let packageId: string;
   let packageVersion: string;
@@ -381,19 +382,31 @@ route.post('/upload', upload.single('file'), async (req, res) => {
   try {
     const authorHasPackage = await author.hasPackage(packageId);
 
-    if (!authorHasPackage) 
-      return res.sendStatus(403);
-
+    if (!authorHasPackage) {
+      routeLogger.info('Author does not own package (unowned_pkg)');
+      return res
+        .status(400)
+        .send('unowned_pkg');
+    }
     const authorPackages = await author.getPackages();
     const thisPackage = authorPackages.find(p => p.packageId === packageId) as PackageData;
+
+    const versionExists = await packageDatabase.versionExists(packageId, version);
+
+    if (versionExists) {
+      routeLogger.info('Version already exists');
+      return res
+        .status(400)
+        .send('version_exists');
+    }
 
     await packageDatabase.addPackageVersion(packageId, version, {
       isPublic: isPublic,
       isStored: isStored,
-      privateKey: !isPublic && isStored ? await privateKeyNanoId(32) : void (0)
+      privateKey: !isPublic && isStored ? await privateKeyNanoid(32) : void (0)
     }, dependencies, incompatibilities);
 
-    routeLogger.info('Registered package version in database');
+    routeLogger.debug('Registered package version in database');
 
     const fileProcessorData: FileProcessorData = {
       zipFileLoc: file.path,
@@ -414,7 +427,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });
     worker.on('message', v => {
       if (v === 'started') {
-        routeLogger.info('Package processing started');
+        routeLogger.debug('Package processing started');
         res.sendStatus(204);
       }
     });
@@ -423,7 +436,129 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       routeLogger.error(err, 'Error while processing package');
     });
   } catch (e) {
+    if (e instanceof InvalidPackageError) {
+      logger.info(e, 'Invalid access config caught after database feeding');
+      return res
+        .status(400)
+        .send(e.shortMessage);
+    }
+
     routeLogger.error(e);
+    return res.sendStatus(500);
+  }
+});
+
+route.post('/retry', upload.single('file'), async (req, res) => {
+  const file = req.file;
+  const author = req.user as Author;
+
+  const routeLogger = logger.child({
+    ip: req.socket.remoteAddress,
+    authorId: author.id,
+    body: req.body,
+    route: '/packages/retry'
+  });
+  routeLogger.debug('Processing retry request');
+
+  if (!file) {
+    routeLogger.info('No file uploaded (no_file)');
+    return res
+      .status(400)
+      .send('no_file');
+  }
+
+  const { packageVersion } = req.body as {
+    packageId?: string;
+    packageVersion?: string;
+  };
+  let { packageId } = req.body;
+
+  if (!packageId || !packageVersion) {
+    routeLogger.info('Missing form data (missing_form_data)');
+    return res
+      .status(400)
+      .send('missing_form_data');
+  }
+
+  try {
+    checkType(packageId, 'string');
+    checkType(packageVersion, 'string');
+  } catch (e) {
+    routeLogger.info(e, 'Invalid form data provided (invalid_form_data)');
+    return res
+      .status(400)
+      .send('invalid_form_data');
+  }
+
+  packageId = packageId.trim().toLowerCase();
+  const version = Version.fromString(packageVersion);
+  if (!version) {
+    routeLogger.info('Invalid package version (invalid_version)');
+    return res
+      .status(400)
+      .send('invalid_version');
+  }
+
+  try {
+    const authorPackages = await author.getPackages();
+
+    const thisPackage = authorPackages.find(p => p.packageId === packageId);
+    if (!thisPackage) {
+      routeLogger.info('Author does not own package, or it doesn\'t exist (no_package)');
+      return res
+        .status(400)
+        .send('no_package');
+    }
+  
+    const versionData = await packageDatabase.getVersionData(packageId, version);
+    routeLogger.debug('Got version data');
+
+    if (versionData.status === VersionStatus.Processed || versionData.status === VersionStatus.Processing) {
+      routeLogger.info('Author is attempting to re-upload non-failed package');
+      return res
+        .status(400)
+        .send('cant_retry');
+    }
+
+    routeLogger.debug('Setting version status back to processing');
+    await packageDatabase.updateVersionStatus(packageId, version, VersionStatus.Processing);
+
+    const fileProcessorData: FileProcessorData = {
+      zipFileLoc: file.path,
+      authorId: author.id,
+      packageName: thisPackage.packageName,
+      packageId,
+      packageVersion: version.toString(),
+      packageType: thisPackage.packageType,
+      dependencies: versionData.dependencies,
+      incompatibilities: versionData.incompatibilities,
+      accessConfig: {
+        isPublic: versionData.isPublic,
+        isPrivate: !versionData.isPublic,
+        isStored: versionData.isStored,
+      }
+    };
+
+    const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });
+    worker.on('message', v => {
+      if (v === 'started') {
+        routeLogger.debug('Package processing started');
+        res.sendStatus(204);
+      }
+    });
+
+    worker.on('error', err => {
+      routeLogger.error(err, 'Error while processing package');
+    });
+  } catch (e) {
+    if (e instanceof NoSuchPackageError) {
+      routeLogger.info('Version does not exist (no_version)');
+      return res
+        .status(400)
+        .send('no_version');
+    }
+
+    routeLogger.error(e, 'Error while attempting to get version data');
     return res.sendStatus(500);
   }
 });

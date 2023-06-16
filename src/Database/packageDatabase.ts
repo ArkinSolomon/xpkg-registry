@@ -81,6 +81,7 @@ export type PackageData = {
  * @property {boolean} isPublic True if the version is public.
  * @property {boolean} isStored True if the version is stored.
  * @property {string} loc The URL from which to download the package version.
+ * @property {string} [privateKey] The private key of the version, if the version is private.
  * @property {number} installs The number of installs for this version.
  * @property {Date} uploadDate The upload time of the package.
  * @property {VersionStatus} VersionStatus The status of the package.
@@ -96,7 +97,7 @@ export type VersionData = {
   isPublic: boolean;
   isStored: boolean;
   loc: string;
-  privateKey: string;
+  privateKey?: string;
   installs: number;
   uploadDate: Date;
   status: VersionStatus;
@@ -278,14 +279,27 @@ interface PackageDatabase {
    * Update the status of a specific package version.
    * 
    * @async
-   * @name PackageDatabase#updateStatus
+   * @name PackageDatabase#updateVersionStatus
    * @param {string} packageId The id of the package which contains the version to update.
    * @param {Version} version The version of the package to update the status of.
    * @param {VersionStatus} newStatus The new status to set.
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
-   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or if the package version does not exist.
    */
-  updatePackageStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void>;
+  updateVersionStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void>;
+
+  /**
+   * Update the private key of a package version.
+   * 
+   * @async 
+   * @name PackageDatabase#updatePrivateKey
+   * @param {string} packageId The id of the package to update the private key of.
+   * @param {Version} version The version of the package to update the private key of.
+   * @param {string} privateKey The new private key of the version. Does not check access config.
+   * @returns {Promise<void>} A promise which resolves if the operation completes.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or if the package version does not exist.
+   */
+  updatePrivateKey(packageId: string, version: Version, privateKey: string): Promise<void>;
 }
 
 // We have to seperate the export because EsLint gets mad

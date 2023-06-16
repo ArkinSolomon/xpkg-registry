@@ -27,6 +27,14 @@ import { unzippedFilesLocation, xpkgFilesLocation } from './routes/packages.js';
 
 logger.info('X-Pkg registry server starting');
 
+process.on('unhandledRejection', err => {
+  logger.error(err, 'Unhandled rejection');
+});
+
+process.on('uncaughtException', err => {
+  logger.error(err, 'Uncaught exception');
+});
+
 logger.info('Cleaning up leftover files from last run');
 await Promise.all([
   fs.rm(unzippedFilesLocation, { recursive: true, force: true }),
@@ -75,6 +83,7 @@ const authRoutes = [
   '/packages/new',
   '/packages/description',
   '/packages/upload',
+  '/packages/retry',
   '/account/*'
 ];
 

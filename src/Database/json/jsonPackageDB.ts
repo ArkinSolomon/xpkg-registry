@@ -83,7 +83,7 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
    * @param {[string][string][]} [dependencies] The dependencies of the version.
    * @param {[string][string][]} [incompatibilities] The incompatibilities of the version.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
-   * @throws {InvalidPackageError} Error thrown if the access config is invalid.
+   * @throws {InvalidPackageError} Error thrown if the version's access configuration is wrong.
    * @throws {NoSuchPackageError} Error thrown if the package does not exist.
    */
   async addPackageVersion(packageId: string, version: Version, accessConfig: {
@@ -346,7 +346,7 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
    * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
    * @throws {NoSuchPackageError} Error thrown if no package exists with the given id.
    */
-  async updatePackageStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void> {
+  async updateVersionStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void> {
     packageId = packageId.trim().toLowerCase();
 
     const pkg = this._data.find(p => p.packageId === packageId);
@@ -362,6 +362,21 @@ class JsonPackageDB extends JsonDB<PackageData & InternalPackageData> implements
     
     pkgVersion.status = newStatus;
     return this._save();
+  }
+
+  /**
+   * Update the private key of a package version.
+   * 
+   * @async 
+   * @name PackageDatabase#updatePrivateKey
+   * @param {string} packageId The id of the package to update the private key of.
+   * @param {Version} version The version of the package to update the private key of.
+   * @param {string} privateKey The new private key of the version. Does not check access config.
+   * @returns {Promise<void>} A promise which resolves if the operation completes.
+   * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or if the package version does not exist.
+   */
+  async updatePrivateKey(packageId: string, version: Version, privateKey: string): Promise<void> {
+    throw new Error('Not implemented');
   }
 }
 

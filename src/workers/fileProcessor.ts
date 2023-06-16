@@ -126,7 +126,7 @@ try {
     logger.info('Unzipped zip file is greater than 16 gibibytes');
     await Promise.all([
       fs.rm(zipFileLoc, { force: true }),
-      packageDatabase.updatePackageStatus(packageId, packageVersion, VersionStatus.FailedFileTooLarge),
+      packageDatabase.updateVersionStatus(packageId, packageVersion, VersionStatus.FailedFileTooLarge),
       sendFailureEmail(VersionStatus.FailedFileTooLarge)
     ]);
     logger.debug('Deleted zip file, updated database, and notified author');
@@ -269,7 +269,7 @@ try {
     logger.info('Author does not have enough space to store package');
     await Promise.all([
       fs.rm(xpkgFileLoc, { force: true }),
-      packageDatabase.updatePackageStatus(packageId, packageVersion, VersionStatus.FailedNotEnoughSpace),
+      packageDatabase.updateVersionStatus(packageId, packageVersion, VersionStatus.FailedNotEnoughSpace),
       sendFailureEmail(VersionStatus.FailedNotEnoughSpace)
     ]);
     logger.debug('Deleted xpkg file, updated database, and notified author');
@@ -399,7 +399,7 @@ async function cleanupUnzippedFail(failureStatus: VersionStatus): Promise<void> 
   logger.info('Packaging failed, cleaning up unzipped directory and updating status: ' + failureStatus);
   await Promise.all([
     fs.rm(originalUnzippedRoot, { recursive: true, force: true }),
-    packageDatabase.updatePackageStatus(packageId, packageVersion, failureStatus),
+    packageDatabase.updateVersionStatus(packageId, packageVersion, failureStatus),
     sendFailureEmail(failureStatus)
   ]);
   logger.info('Cleaned up unzipped directory, status updated, and author notified');
@@ -413,7 +413,7 @@ async function cleanupUnzippedFail(failureStatus: VersionStatus): Promise<void> 
  */
 async function abort(): Promise<void> {
   await Promise.all([
-    packageDatabase.updatePackageStatus(packageId, packageVersion, VersionStatus.Aborted),
+    packageDatabase.updateVersionStatus(packageId, packageVersion, VersionStatus.Aborted),
     sendFailureEmail(VersionStatus.Aborted)
   ]);
   rmSync(xpkgFileLoc, { force: true });

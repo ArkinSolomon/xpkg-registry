@@ -13,6 +13,8 @@
  * either express or implied limitations under the License.
  */
 
+import Version from '../util/version.js';
+
 /**
  * An error which is thrown by the account database when such a package does not exist.
  */
@@ -29,11 +31,11 @@ export default class NoSuchPackageError extends Error {
    * Create a new error saying a pacakage does not exist with the provided package id and version.
    * 
    * @param {string} packageId The id of the package that does not exist.
-   * @param {string} version The version of the package that does not exist
+   * @param {Version} version The version of the package that does not exist
    */
-  constructor(packageId: string, version: string);
+  constructor(packageId: string, version: Version);
 
-  constructor(packageId: string, version?: string) {
+  constructor(packageId: string, version?: Version) {
     if (version)
       super(`Package does not exist: ${packageId}@${version}`);
     else

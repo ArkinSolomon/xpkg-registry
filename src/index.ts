@@ -35,7 +35,7 @@ process.on('uncaughtException', err => {
   logger.error(err, 'Uncaught exception');
 });
 
-logger.info('Cleaning up leftover files from last run');
+logger.debug('Cleaning up leftover files from last run');
 await Promise.all([
   fs.rm(unzippedFilesLocation, { recursive: true, force: true }),
   fs.rm(xpkgFilesLocation, { recursive: true, force: true })
@@ -44,13 +44,12 @@ await Promise.all([
   fs.mkdir(unzippedFilesLocation, { recursive: true }),
   fs.mkdir(xpkgFilesLocation, { recursive: true })
 ]);
-logger.info('Done cleaning up files');
+logger.debug('Done cleaning up files');
 
 const app = Express();
 app.use(bodyParser.json());
-app.use(bodyParser.urlencoded({ extended: false }));
 app.use(cors());
-app.use(function (req, res, next) {
+app.use(function (_, res, next) {
   res.setHeader('X-Powered-By', 'Express, X-Pkg contributors, and you :)');
   next();
 });
@@ -72,10 +71,13 @@ import packages from './routes/packages.js';
 import auth from './routes/auth.js';
 import account from './routes/account.js';
 
-import { authorDatabase, packageDatabase } from './database/databases.js';
-
-import { PackageData, VersionStatus } from './database/packageDatabase.js';
-import Author, { AuthTokenPayload } from './author.js';
+import * as authorDatabase from './database/authorDatabase.js';
+import * as packageDatabase from './database/packageDatabase.js';
+import Author from './author.js';
+import { PackageData } from './database/models/packageModel.js';
+import { VersionStatus } from './database/models/versionModel.js';
+import { AuthTokenPayload } from './database/models/authorModel.js';
+import rateLimiter from './util/rateLimiter.js';
 
 // Update this with all routes that require tokens
 const authRoutes = [
@@ -130,10 +132,13 @@ app.use(authRoutes, async (req, res, next) => {
     req.user = author;
     next();
   } catch (_) {
-    logger.info(`Unauthorized login attempt from ${req.socket.remoteAddress}`);
+    logger.info(`Unauthorized login attempt from ${req.ip || req.socket.remoteAddress}`);
     return res.sendStatus(401);
   }
 });
+
+app.use('/auth/login', rateLimiter('login', 5, 3));
+app.use('/auth/create', rateLimiter('create', 5, 3));
 
 app.use('/packages', packages);
 app.use('/auth', auth);
@@ -174,7 +179,7 @@ const updateInterval = 60 * 1000;
 setInterval(updateData, updateInterval);
 logger.info(`Package data updating every ${updateInterval}ms`);
 
-const port = process.env.port || 5020;
+const port = process.env.PORT || 443;
 app.listen(port, () => {
   logger.info(`Server started, listening on port ${port}`);
 });

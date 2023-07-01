@@ -100,9 +100,11 @@ export default class JobsServiceManager {
     this._onAbort = onAbort;
     this._logger = logger;
     this._data = jobData;
-    this._socket = io(`ws://${process.env.JOBS_SERVICE_ADDR}:${process.env.JOBS_SERVICE_PORT}/`, {
+    this._socket = io(`https://${process.env.JOBS_SERVICE_ADDR}/`, {
       reconnectionAttempts: Infinity,
-      reconnectionDelay: 5000
+      reconnectionDelay: 5000,
+      rejectUnauthorized: true,
+      secure: true
     });
 
     this._socket.on('handshake', trustKey => {
@@ -123,7 +125,7 @@ export default class JobsServiceManager {
         return;
       }
 
-      this._logger.info('Jobs service trust key valid');      
+      this._logger.debug('Jobs service trust key valid');      
       this._socket.emit('handshake', process.env.JOBS_SERVICE_PASSWORD);
     });
 
@@ -137,14 +139,18 @@ export default class JobsServiceManager {
       this._authorized = true;
     });
 
-    this._socket.on('disconnect', reason => {
+    this._socket.on('disconnect', async reason => {
       this._authorized = false;
 
-      if (!this._aborted) {
+      if (reason === 'io server disconnect') {
+        this._logger.warn(`Forcefully disconnected from jobs service, will abort job (${reason})`);
+        await this._abort();
+      }
+      else if (!this._aborted) {
         if (!this._done)
           this._logger.error(`Unexpectedly disconnected from jobs service (${reason})`);
         else
-          this._logger.info(`Gracefully disconnected from jobs service (${reason})`);
+          this._logger.debug(`Gracefully disconnected from jobs service (${reason})`);
       } else 
         this._logger.info(`Disconnected from jobs service, job aborted (${reason})`);
       
@@ -185,12 +191,12 @@ export default class JobsServiceManager {
    */
   waitForAuthorization(): Promise<void> {
     if (!this._authorized)
-      this._logger.info('Waiting for authorization with jobs service');
+      this._logger.debug('Waiting for authorization with jobs service');
     return new Promise(resolve => {
       const intervalId = setInterval(() => {
         if (this._authorized) {
           clearInterval(intervalId);
-          this._logger.info('Worker authorized with jobs service');
+          this._logger.debug('Worker authorized with jobs service');
           resolve();
         }
       }, 500);

@@ -12,13 +12,18 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
+import mongoose from 'mongoose';
+import logger from '../logger.js';
 
-// Re-export the databases we want to use
-
-// JSON
-// export { default as authorDatabase } from './json/jsonAuthorDB.js';
-// export { default as packageDatabase } from './json/jsonPackageDB.js';
-
-// MySQL
-export { default as authorDatabase } from './mysql/mysqlAuthorDB.js';
-export { default as packageDatabase } from './mysql/mysqlPackageDB.js';
+try {
+  await mongoose.connect(`mongodb+srv://${process.env.MONGODB_IP}/?authSource=%24external&authMechanism=MONGODB-X509` as string, {
+    sslValidate: true,
+    tlsCertificateKeyFile: process.env.MONGODB_KEY_PATH,
+    authMechanism: 'MONGODB-X509',
+    authSource: '$external'
+  });
+  logger.info('Connected to MongoDB Atlas');
+} catch (e) {
+  logger.fatal(e, 'Could not connect to MongoDB Atlas');
+  process.exit(1);
+}

@@ -15,10 +15,11 @@
 
 import { Router } from 'express';
 import { validateName } from '../util/validators.js';
-import { PackageData, VersionData } from '../database/packageDatabase.js';
 import Author from '../author.js';
-import { packageDatabase } from '../database/databases.js';
+import * as packageDatabase from '../database/packageDatabase.js';
 import logger from '../logger.js';
+import { PackageData } from '../database/models/packageModel.js';
+import { VersionData } from '../database/models/versionModel.js';
 
 const route = Router();
 
@@ -87,7 +88,7 @@ route.put('/changename', async (req, res) => {
     const daysSinceChange = Math.abs(lastChangeDate.getTime() - Date.now()) / 8.64e7;
     if (daysSinceChange < 30) {
       routeLogger.info('Author attempted to change name within 30 days of last name change');
-      return res.sendStatus(406);
+      return res.sendStatus(403);
     }
     
     await author.changeName(newName);

@@ -21,8 +21,7 @@ import fs from 'fs';
 import Author from '../author.js';
 import * as validators from '../util/validators.js';
 import Version from '../util/version.js';
-import { PackageData, PackageType, VersionStatus } from '../database/packageDatabase.js';
-import { packageDatabase } from '../database/databases.js';
+import * as packageDatabase from '../database/packageDatabase.js';
 import { FileProcessorData } from '../workers/fileProcessor.js';
 import logger from '../logger.js';
 import { Worker } from 'worker_threads';
@@ -32,6 +31,8 @@ import { isMainThread } from 'worker_threads';
 import SelectionChecker from '../util/selectionChecker.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import InvalidPackageError from '../errors/invalidPackageError.js';
+import { PackageData, PackageType } from '../database/models/packageModel.js';
+import { VersionStatus } from '../database/models/versionModel.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -141,7 +142,7 @@ route.post('/new', upload.none(), async (req, res) => {
   const author = req.user as Author;
 
   const routeLogger = logger.child({
-    ip: req.socket.remoteAddress,
+    ip: req.ip || req.socket.remoteAddress,
     authorId: author.id,
     body: req.body,
     route: '/packages/new'
@@ -278,7 +279,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
   const author = req.user as Author;
 
   const routeLogger = logger.child({
-    ip: req.socket.remoteAddress,
+    ip: req.ip || req.socket.remoteAddress,
     authorId: author.id,
     body: req.body,
     route: '/packages/upload'
@@ -453,7 +454,7 @@ route.post('/retry', upload.single('file'), async (req, res) => {
   const author = req.user as Author;
 
   const routeLogger = logger.child({
-    ip: req.socket.remoteAddress,
+    ip: req.ip || req.socket.remoteAddress,
     authorId: author.id,
     body: req.body,
     route: '/packages/retry'

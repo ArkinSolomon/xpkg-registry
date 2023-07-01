@@ -53,11 +53,11 @@ export function validatePassword(password: string): boolean {
  * @returns {boolean} True if the email is valid.
  */
 export function validateEmail(email: string): boolean {
-  return /^\S+@\S+\.\S+$/.test(
+  return ((email && typeof email === 'string') && /^\S+@\S+\.\S+$/.test(
     email
       .toLowerCase()
       .trim()
-  ) && (email && typeof email === 'string' && email.length >= 4 && email.length <= 64) as boolean;
+  ) && (email.length >= 5 && email.length <= 64)) as boolean;
 }
 
 /**
@@ -67,5 +67,5 @@ export function validateEmail(email: string): boolean {
  * @returns {boolean} True if the name is valid.
  */
 export function validateName(name: string): boolean {
-  return (name && typeof name === 'string' && name.length > 3 && name.length <= 32 && !isProfane(name)) as boolean;
+  return (name && typeof name === 'string' && name.length >= 3 && name.length <= 32 && !isProfane(name)) as boolean;
 }

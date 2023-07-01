@@ -13,33 +13,10 @@
  * either express or implied limitations under the License.
  */
 
-/**
- * The payload of the JWT tokens used for authorization.
- * 
- * @typedef {Object} AuthTokenPayload
- * @property {string} id The id of the author.
- * @property {string} name The name of the author.
- * @property {string} session The current session of the user to be invalidated on password change.
- */
-export type AuthTokenPayload = {
-  id: string;
-  name: string;
-  session: string;
-}
-
-/**
- * The payload of the JWT tokens used for account validation.
- * 
- * @typedef {Object} AccountValidationPayload
- * @property {string} id The id of the author that is verifying their account.
- */
-export type AccountValidationPayload = {
-  id: string;
-}
-
-import { AuthorData } from './database/authorDatabase.js';
-import { PackageData } from './database/packageDatabase.js';
-import { authorDatabase, packageDatabase } from './database/databases.js';
+import { AccountValidationPayload, AuthTokenPayload, AuthorData } from './database/models/authorModel.js';
+import { PackageData } from './database/models/packageModel.js';
+import * as authorDatabase from './database/authorDatabase.js';
+import * as packageDatabase from './database/packageDatabase.js';
 import email from './util/email.js';
 import { nanoid } from 'nanoid/async';
 import * as jwtPromise from './util/jwtPromise.js';
@@ -49,7 +26,7 @@ import NoSuchAccountError from './errors/noSuchAccountError.js';
 // When the auth token should expire
 const authTokenExpiry = 2.592e9;
 
-const GREETING_LIST = ['Hi', 'Hello', 'Howdy', 'Hola', 'Bonjour', 'Greetings', 'Hey', 'What\'s up', 'Salutations', 'Hey there'];
+const GREETING_LIST = ['Hi', 'Hello', 'Howdy', 'Hola', 'Greetings', 'Hey', 'What\'s up', 'Salutations', 'Hey there'];
 
 /**
  * This class defines a user, which is passed as req.user in authorized routes.

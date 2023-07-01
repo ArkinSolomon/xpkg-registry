@@ -52,24 +52,25 @@ import { unlinkSync, lstatSync, Stats, createReadStream} from 'fs';
 import path from 'path';
 import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import Version from '../util/version.js';
-import { PackageType, VersionStatus } from '../database/packageDatabase.js';
 import loggerBase from '../logger.js';
 import { nanoid } from 'nanoid/async';
 import { isMainThread, parentPort, workerData } from 'worker_threads';
-import { packageDatabase } from '../database/databases.js';
+import * as packageDatabase from '../database/packageDatabase.js';
 import hasha from 'hasha';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import Author from '../author.js';
 import JobsServiceManager, { JobData, JobType, PackagingInfo } from './jobsServiceManager.js';
 import { unzippedFilesLocation, xpkgFilesLocation } from '../routes/packages.js';
 import childProcess from 'child_process';
+import { VersionStatus } from '../database/models/versionModel.js';
+import { PackageType } from '../database/models/packageModel.js';
 
 if (isMainThread) {
   console.error('Worker files can not be run');
   process.exit(1); 
 }
 
-const PUBLIC_BUCKET_NAME = 'xpkgregistrydev';
+const PUBLIC_BUCKET_NAME = 'xpkgregistry';
 const PRIVATE_BUCKET_NAME = 'xpkgprivatepackagesdev';
 const data = workerData as FileProcessorData;
 

@@ -28,71 +28,34 @@ export type PasswordResetPayload = {
 import bcrypt from 'bcrypt';
 import { Router } from 'express';
 import * as validators from '../util/validators.js';
-import Author, { AccountValidationPayload } from '../author.js';
-import NoSuchAccountError from '../errors/noSuchAccountError.js';
-import { authorDatabase } from '../database/databases.js';
+import * as authorDatabase from '../database/authorDatabase.js';
 import { decode } from '../util/jwtPromise.js';
 import logger from '../logger.js';
+import { nanoid } from 'nanoid/async';
+import { AccountValidationPayload } from '../database/models/authorModel.js';
+import verifyRecaptcha from '../util/recaptcha.js';
 
 const route = Router();
 
-route.post('/login', async (req, res) => {
-  const body = req.body as { email: string; password: string; };
-
-  if (!body.email || !body.password) {
-    logger.info(`Missing form data in login request from ${req.socket.remoteAddress}`);
-    return res.sendStatus(400);
-  }
-
-  const email = body.email.trim().toLowerCase();
-  const { password } = body;
-  const routeLogger = logger.child({
-    ip: req.socket.remoteAddress,
-    route: '/auth/login',
-    email,
-    requestId: req.id
-  });
-
-  try {
-    if (!validators.validateEmail(email) || !validators.validatePassword(password)) {
-      routeLogger.info('Invalid email or password');
-      return res.sendStatus(400);
-    }
-
-    const author = await Author.login(email, password);
-    routeLogger.info(`Login credentials valid for author: ${author.name}`);
-    const token = await author.createAuthToken();
-    routeLogger.info(`Token generated for author: ${author.name}`);
-
-    res.json({ token });
-
-    await author.sendEmail('New Login', `There was a new login to your X-Pkg account from ${req.socket.remoteAddress}`);
-  } catch (e) {
-    if (e instanceof NoSuchAccountError) {
-      routeLogger.info('No account with email/password combination');
-      return res.sendStatus(401);
-    }
-
-    routeLogger.error(e);
-    res.sendStatus(500);
-  }
-});
 
 route.post('/create', async (req, res) => {
-  const body = req.body as { password: string; email: string; name: string; };
-
-  if (!body.password || !body.email || !body.name) {
-    logger.info(`Missing form data in login request from ${req.socket.remoteAddress}`);
-    return res.sendStatus(400);
-  }
+  const body = req.body as {
+    password?: unknown;
+    email?: unknown;
+    name?: unknown;
+    validation?: unknown;
+  };
 
   const routeLogger = logger.child({
-    ip: req.socket.remoteAddress,
+    ip: req.ip || req.socket.remoteAddress,
     route: '/auth/create',
-    email: body.email.trim().toLowerCase(),
-    name: body.name.trim(),
     requestId: req.id
   });
+
+  if (typeof body.email !== 'string' || typeof body.password !== 'string' || typeof body.name !== 'string' || typeof body.validation !== 'string') {
+    routeLogger.info('Missing form data or invalid types');
+    return res.sendStatus(400);
+  }
 
   try {
     const name = body.name.trim();
@@ -104,33 +67,111 @@ route.post('/create', async (req, res) => {
       return res.sendStatus(400);
     }
 
+    if (!(await verifyRecaptcha(body.validation, req.ip || req.socket.remoteAddress || 'unknown'))) {
+      routeLogger.info('ReCAPTCHA validation failed');
+      return res.sendStatus(418);
+    } 
+
     const [emailInUse, nameInUse] = await Promise.all([
       authorDatabase.emailExists(email),
       authorDatabase.nameExists(name)
     ]);
 
     if (emailInUse || nameInUse) {
-      routeLogger.info('Email or name already in use');
-      return res.sendStatus(409);
+      routeLogger.info(`${emailInUse ? 'Email' : 'Name'} already in use`);
+      return res
+        .status(403)
+        .send(emailInUse ? 'email' : 'name');
     }
 
     const hash = await bcrypt.hash(password, 12);
-    const author = await Author.create(name, email, hash);
+    const newAuthorId = await nanoid(8) + Math.floor(Date.now() / 1000);
+    const author =  await authorDatabase.createAuthor(
+      newAuthorId,
+      name,
+      email,
+      hash
+    );
 
-    routeLogger.info(`New author account created with an id of ${author.id}`);
+    routeLogger.setBindings({
+      authorId: newAuthorId
+    });
+    routeLogger.debug('New author account registered in database');
 
     const [token, verificationToken] = await Promise.all([
       author.createAuthToken(),
       author.createVerifyToken()
     ]);
 
-    routeLogger.info(`Author authorization token and verification tokens generated for the author with the id of ${author.id}`);
+    routeLogger.debug('Generated auth and verification tokens');
 
-    author.sendEmail('Welcome to X-Pkg', `Welcome to X-Pkg! To start uploading packages or resources to the portal, you need to verify your email first:  http://localhost:3000/verify/${verificationToken} (this link expires in 24 hours).`);
+    author.sendEmail('Welcome to X-Pkg', `Welcome to X-Pkg!\n\nTo start uploading packages or resources to the portal, you need to verify your email first: http://localhost:3000/verify/${verificationToken} (this link expires in 24 hours).`);
     res.json({ token });
+    routeLogger.info('New author account created');
   } catch (e) {
     routeLogger.error(e);
     return res.sendStatus(500);
+  }
+});
+
+route.post('/login', async (req, res) => {
+  const body = req.body as {
+    email?: unknown;
+    password?: unknown;
+    validation?: unknown;
+  };
+
+  const routeLogger = logger.child({
+    ip: req.ip || req.socket.remoteAddress,
+    route: '/auth/login',
+    requestId: req.id,
+  });
+
+  if (typeof body.email !== 'string' || typeof body.password !== 'string' || typeof body.validation !== 'string') {
+    routeLogger.info('Missing form data or invalid types');
+    return res.sendStatus(400);
+  }
+
+  const email = body.email.trim().toLowerCase();
+  const { password } = body;
+
+  try {
+    if (!validators.validateEmail(email) || !validators.validatePassword(password)) {
+      routeLogger.info('Invalid email or password values');
+      return res.sendStatus(401);
+    }
+
+    if (!(await verifyRecaptcha(body.validation, req.ip || req.socket.remoteAddress || 'unknown'))) {
+      routeLogger.info('ReCAPTCHA validation failed');
+      return res.sendStatus(418);
+    }
+
+    const author = await authorDatabase.getAuthorFromEmail(email);
+    if (!author) {
+      routeLogger.info('No account with email');
+      return res.sendStatus(401);
+    }
+
+    routeLogger.setBindings({
+      authorName: author?.authorName
+    });
+
+    const isValid = await bcrypt.compare(password, author.password);
+    if (!isValid) {
+      routeLogger.info('Wrong password');
+      return res.sendStatus(401);
+    }
+
+    routeLogger.debug('Login credentials valid');
+    const token = await author.createAuthToken();
+    routeLogger.info('Successful login, token generated');
+
+    res.json({ token });
+
+    await author.sendEmail('New Login', `There was a new login to your X-Pkg account from ${req.ip || req.socket.remoteAddress}`);
+  } catch (e) {
+    routeLogger.error(e);
+    res.sendStatus(500);
   }
 });
 
@@ -140,12 +181,12 @@ route.post('/verify/:verificationToken', async (req, res) => {
     const payload = await decode(req.params.verificationToken, process.env.EMAIL_VERIFY_SECRET as string) as AccountValidationPayload;
     id = payload.id;
   } catch {
-    logger.info(`Invalid token in verification request from ${req.socket.remoteAddress}`);
+    logger.info(`Invalid token in verification request from ${req.ip || req.socket.remoteAddress}`);
     return res.sendStatus(401);
   }
 
   const routeLogger = logger.child({
-    ip: req.socket.remoteAddress,
+    ip: req.ip || req.socket.remoteAddress,
     route: '/auth/verify/:verificationToken',
     authorId: id,
     requestId: req.id

@@ -21,10 +21,10 @@ export default class NoSuchAccountError extends Error {
   /**
    * Create a new error saying the account does not exist with the provided details.
    * 
-   * @param {string} key The name key that the author was looked up by.
-   * @param {string} keyName The value of the key that the author was looked up by.
+   * @param {string} keyName The name of the key that the author was looked up by.
+   * @param {string} key The value of the key that the author was looked up by.
    */
-  constructor(key: string, keyName: string) {
-    super(`Account does not exist with the parameters: ${key}=${keyName}`);
+  constructor(keyName: string, key: string) {
+    super(`Account does not exist with the parameters: ${keyName}=${key}`);
   }
 }

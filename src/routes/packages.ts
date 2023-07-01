@@ -297,13 +297,8 @@ route.post('/upload', upload.single('file'), async (req, res) => {
 
   try {
     packageId = req.body.packageId.trim().toLowerCase();
-
     packageVersion = req.body.packageVersion.trim().toLowerCase();
     xplaneSelectionStr = req.body.xplaneSelection.trim().toLowerCase();
-
-    checkType(packageId, 'string');
-    checkType(packageVersion, 'string');
-    checkType(xplaneSelectionStr, 'string');
 
     isPublic = typeof req.body.isPublic === 'string' && req.body.isPublic === 'true';
     isPrivate = typeof req.body.isPrivate === 'string' && req.body.isPrivate === 'true';
@@ -373,7 +368,17 @@ route.post('/upload', upload.single('file'), async (req, res) => {
   }
 
   const xplaneSelection = new SelectionChecker(xplaneSelectionStr);
-  if (!xplaneSelection.isValid) {
+  if (!xplaneSelectionStr.length) {
+    routeLogger.info('X-Plane selection string is empty (empty_xp_sel)');
+    return res
+      .status(400)
+      .send('empty_xp_sel');
+  } else if (xplaneSelectionStr.length > 256) {
+    routeLogger.info('X-Plane selection string is too long (long_xp_sel)');
+    return res
+      .status(400)
+      .send('long_xp_sel');
+  } else if (!xplaneSelection.isValid) {
     routeLogger.info('Invalid X-Plane selection (invalid_xp_sel)');
     return res
       .status(400)
@@ -401,11 +406,12 @@ route.post('/upload', upload.single('file'), async (req, res) => {
         .send('version_exists');
     }
 
+    const xpSelection = xplaneSelection.toString();
     await packageDatabase.addPackageVersion(packageId, version, {
       isPublic: isPublic,
       isStored: isStored,
       privateKey: !isPublic && isStored ? await privateKeyNanoid(32) : void (0)
-    }, dependencies, incompatibilities);
+    }, dependencies, incompatibilities, xpSelection);
 
     routeLogger.debug('Registered package version in database');
 
@@ -422,7 +428,8 @@ route.post('/upload', upload.single('file'), async (req, res) => {
         isPublic,
         isPrivate,
         isStored
-      }
+      },
+      xpSelection
     };
 
     const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });
@@ -537,7 +544,8 @@ route.post('/retry', upload.single('file'), async (req, res) => {
         isPublic: versionData.isPublic,
         isPrivate: !versionData.isPublic,
         isStored: versionData.isStored,
-      }
+      },
+      xpSelection: versionData.xpSelection
     };
 
     const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });

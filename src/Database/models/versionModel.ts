@@ -51,6 +51,7 @@ export enum VersionStatus {
  * @property {[string][string][]} incompatibilities The incompatibilities of the version.
  * @property {number} size The size of the xpkg file in bytes.
  * @property {number} installedSize The size of the xpkg file unzipped in bytes.
+ * @property {string} xpSelection The X-Plane selection string.
  */
 export type VersionData = {
   packageId: string;
@@ -67,6 +68,7 @@ export type VersionData = {
   incompatibilities: [string, string][];
   size: number;
   installedSize: number;
+  xpSelection: string;
 };
 
 import mongoose, { Schema } from 'mongoose';
@@ -141,6 +143,10 @@ const versionSchema = new Schema<VersionData>({
     type: Number,
     required: true,
     default: 0
+  },
+  xpSelection: {
+    type: String,
+    required: true
   }
 }, {
   collection: 'versions'

@@ -29,6 +29,7 @@
  * @property {boolean} accessConfig.isPublic True if the package is public.
  * @property {boolean} accessConfig.isPrivate True if the package is private.
  * @property {boolean} accessConfig.isStroed True if the package is stored.
+ * @property {boolean} xpSelection The X-Plane selection string.
  */
 export type FileProcessorData = { 
   zipFileLoc: string;
@@ -44,6 +45,7 @@ export type FileProcessorData = {
     isPrivate: boolean;
     isStored: boolean;
   };
+  xpSelection: string;
 }
 
 import fs from 'fs/promises';
@@ -83,7 +85,8 @@ const {
   packageType,
   dependencies,
   incompatibilities,
-  accessConfig
+  accessConfig,
+  xpSelection
 } = data;
 const [tempId, awsId] = await Promise.all([nanoid(32), nanoid(64)]);
 
@@ -194,7 +197,8 @@ try {
     packageVersion: packageVersion.toString(),
     authorId,
     dependencies,
-    incompatibilities
+    incompatibilities,
+    xpSelection
   };
 
   logger.debug('Processing files');

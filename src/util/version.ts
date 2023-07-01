@@ -30,6 +30,24 @@ export default class Version {
   private _versionParts: InternalVersion;
 
   /**
+   * The smallest possible version.
+   * 
+   * @returns {Version} The smallest possible version.
+   */
+  static get MIN_VERSION(): Version {
+    return new Version(0, 0, 1, 'a', 1);
+  }
+
+  /**
+   * The largest possible version.
+   * 
+   * @returns {Version} The largest possible version.
+   */
+  static get MAX_VERSION(): Version {
+    return new Version(999, 999, 999);
+  }
+
+  /**
    * Get the major number of this version.
    * 
    * @returns {number} The major number of this version.
@@ -292,6 +310,18 @@ export default class Version {
    */
   copy(): Version {
     return new Version(this.major, this.minor, this.patch, this.preReleaseType, this.preReleaseNum);
+  }
+
+  /**
+   * Determine if this version is equal to another version.
+   * 
+   * @param {Version} other The other version to determine for equality.
+   * @returns {boolean} True if the versions are equal.
+   */
+  equals(other: Version) {
+    if (!other || !(other instanceof Version))
+      return false;
+    return this.toFloat().eq(other.toFloat());
   }
 }
 

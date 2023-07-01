@@ -55,19 +55,21 @@ export async function addPackage(packageId: string, packageName: string, author:
  * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private and stored.
  * @param {[string][string][]} [dependencies] The dependencies of the version.
  * @param {[string][string][]} [incompatibilities] The incompatibilities of the version.
+ * @param {string} xpSelection The X-Plane selection.
  * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
  */
 export async function addPackageVersion(packageId: string, version: Version, accessConfig: {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
-  }, dependencies: [string, string][], incompatibilities: [string, string][]): Promise<void> {
+  }, dependencies: [string, string][], incompatibilities: [string, string][], xpSelection: string): Promise<void> {
   const newVersion = new VersionModel({
     packageId,
     version,
     ...accessConfig,
     dependencies,
-    incompatibilities
+    incompatibilities,
+    xpSelection
   });
 
   await newVersion.save();
@@ -172,7 +174,11 @@ export async function getPackageData(packageId?: string): Promise<PackageData[]|
     return pkg;
   } 
 
-  return PackageModel.find().exec();
+  return PackageModel
+    .find()
+    .select('-_id -__v')
+    .lean()
+    .exec();
 }
 
 /**
@@ -201,13 +207,20 @@ export async function getVersionData(packageId: string, version?: Version): Prom
     const versionDoc = await VersionModel.findOne({
       packageId,
       version
-    }).exec();
+    })
+      .lean()
+      .select('-_id -__v')
+      .exec();
+    
     if (!versionDoc)
       throw new NoSuchPackageError(packageId, version);
     return versionDoc;
   }
 
-  return VersionModel.find({ packageId }).exec();
+  return VersionModel.find({ packageId })
+    .lean()
+    .select('-_id -__v')
+    .exec();
 }
 
 /**

@@ -103,11 +103,13 @@ route.put('/changename', async (req, res) => {
 
 route.get('/packages', async (req, res) => {
   const author = req.user as Author;
-  const data: (PackageData & { versions: (Omit<VersionData, 'uploadDate'> & { uploadDate: string; })[]; })[] = [];
+  const data: (PackageData & { versions: VersionData[]; })[] = [];
 
   const routeLogger = logger.child({
     route: '/account/packages',
-    authorId: author.id
+    authorId: author.id,
+    id: req.id,
+    ip: req.ip || req.socket.remoteAddress
   });
   routeLogger.debug('Author requesting their package data');
 

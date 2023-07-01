@@ -201,6 +201,35 @@ export default class SelectionChecker {
     }
     return false;
   }
+
+  /**
+   * Get a simplified string representation of the version selection.
+   * 
+   * @returns {string} A simplified string representation of the version selection.
+   */
+  toString(): string {
+    let rangeStrings: string[] = [];
+
+    if (!this._ranges.length) 
+      return '<empty version select>';
+
+    for (const range of this._ranges) {
+      if (range.minVersion.equals(range.maxVersion))
+        rangeStrings.push(range.minVersion.toString());
+      else if (range.minVersion.equals(Version.MIN_VERSION) && range.maxVersion.equals(Version.MAX_VERSION))
+        return '*';
+      else if (range.minVersion.equals(Version.MIN_VERSION))
+        rangeStrings = ['-' + range.maxVersion.toString()];
+      else if (range.maxVersion.equals(Version.MAX_VERSION)) {
+        rangeStrings.push(range.minVersion.toString() + '-');
+        break;
+      }
+      else
+        rangeStrings.push(`${range.minVersion.toString()}-${range.maxVersion.toString()}`);
+    }
+
+    return rangeStrings.join(',');
+  }
 }
 
 /**

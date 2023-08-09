@@ -18,7 +18,6 @@ import { Router } from 'express';
 import multer from 'multer';
 import os from 'os';
 import fs from 'fs';
-import Author from '../author.js';
 import * as validators from '../util/validators.js';
 import Version from '../util/version.js';
 import * as packageDatabase from '../database/packageDatabase.js';
@@ -30,9 +29,9 @@ import { customAlphabet } from 'nanoid/async';
 import { isMainThread } from 'worker_threads';
 import SelectionChecker from '../util/selectionChecker.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
-import InvalidPackageError from '../errors/invalidPackageError.js';
 import { PackageData, PackageType } from '../database/models/packageModel.js';
 import { VersionStatus } from '../database/models/versionModel.js';
+import AuthToken from '../auth/authToken.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -56,22 +55,24 @@ route.get('/', (_, res) => {
   res.sendFile(storeFile);
 });
 
-route.get('/:packageId/:version', async (req, res) => {
+route.get('/info/:packageId/:version', async (req, res) => {
   const { packageId, version: versionString } = req.params as {
-    packageId: string;
-    version: string;
+    packageId: unknown;
+    version: unknown;
   };
 
-  const version = Version.fromString(versionString);
-  if (!version)
+  if (typeof versionString !== 'string' || typeof packageId !== 'string')
+    return res.sendStatus(400);
+  
+  if (!validateId(packageId))
     return res.sendStatus(400);
 
   try {
+    const version = Version.fromString(versionString);
+    if (!version)
+      return res.sendStatus(400);
+
     const versionData = await packageDatabase.getVersionData(packageId, version);
-
-    if (!versionData.isPublic)
-      return res.sendStatus(404);
-
     res
       .status(200)
       .json({
@@ -80,58 +81,85 @@ route.get('/:packageId/:version', async (req, res) => {
         dependencies: versionData.dependencies,
         incompatibilities: versionData.incompatibilities
       });
-  } catch {
-    return res.sendStatus(404);
+  } catch (e) {
+    if (e instanceof NoSuchPackageError) 
+      return res.sendStatus(404);
+    logger.error(e);
   }
 });
 
-route.put('/description', async (req, res) => {
-  const author = req.user as Author;
+route.patch('/description', async (req, res) => {
+  const token = req.user as AuthToken;
+  const body = req.body as {
+    newDescription: unknown;
+    packageId: unknown;
+  };
 
-  if (!req.body.newDescription)
+  const routeLogger = logger.child({
+    ip: req.ip || req.socket.remoteAddress,
+    route: '/packages/description',
+    authorId: token.authorId,
+    requestId: req.id
+  });
+  routeLogger.debug('Author wants to update package description');
+
+  if (typeof body.newDescription !== 'string') {
+    routeLogger.info('The newDescription field was not present in the request body (no_desc)');
     return res
       .status(400)
       .send('no_desc');
+  }
 
-  if (!req.body.packageId)
+  if (typeof body.packageId !== 'string') {
+    routeLogger.info('The packageId field was not present in the request body (no_id)');
     return res
       .status(400)
       .send('no_id');
-
-  let packageId, newDescription;
-  try {
-    checkType(req.body.packageId, 'string');
-    checkType(req.body.newDescription, 'string');
-
-    packageId = req.body.packageId.trim().toLowerCase();
-    newDescription = req.body.newDescription.trim();
-  } catch (e) {
-    return res
-      .status(400)
-      .send('invalid_type');
   }
 
-  if (newDescription.length < 10)
-    return res
-      .status(400)
-      .send('short_desc');
-  else if (newDescription.length > 8192)
-    return res
-      .status(400)
-      .send('long_desc');
-
   try {
+    const packageId = req.body.packageId.trim().toLowerCase();
+    const newDescription = req.body.newDescription.trim();
+
+    if (newDescription.length < 10) {
+      routeLogger.info('New description length too short (short_desc)');
+      return res
+        .status(400)
+        .send('short_desc');
+    }
+    else if (newDescription.length > 8192) {
+      routeLogger.info('New description length too long (long_desc)');
+      return res
+        .status(400)
+        .send('long_desc');
+    }
+
+    if (!validateId(packageId)) {
+      routeLogger.info('Package identifier invalid (invalid_id)');
+      return res
+        .status(400)
+        .send('invalid_id');
+    }
+    routeLogger.setBindings({ packageId });
+
+    if (!token.canUpdatePackageDescription(packageId)) {
+      routeLogger.info('Insufficient permissions to update package description');
+      return res.sendStatus(401);
+    }
+
+    const author = await token.getAuthor();
 
     // We want to make sure they're updating the description for a package that they own
-    if (!(await author.hasPackage(packageId)))
+    if (!(await packageDatabase.doesAuthorHavePackage(token.authorId, packageId))) {
+      routeLogger.info('Author does not own package');
       return res.sendStatus(403);
+    }
 
     await packageDatabase.updateDescription(packageId, newDescription);
-
     res.sendStatus(204);
 
     const { packageName } = await packageDatabase.getPackageData(packageId);
-    author.sendEmail(`X-Pkg: '${packageName}' Description updated`, `Description updated for the package '${packageName}' (${packageId}).`);
+    author.sendEmail(`X-Pkg: '${packageName}' Description updated`, `The description has been updated for the package '${packageName}' (${packageId}).`);
   } catch (e) {
     console.error(e);
     res.sendStatus(500);
@@ -139,15 +167,14 @@ route.put('/description', async (req, res) => {
 });
 
 route.post('/new', upload.none(), async (req, res) => {
-  const author = req.user as Author;
-
+  const token = req.user as AuthToken;
   const routeLogger = logger.child({
     ip: req.ip || req.socket.remoteAddress,
-    authorId: author.id,
+    authorId: token.authorId,
     body: req.body,
     route: '/packages/new'
   });
-  routeLogger.info('New package requested, will validate fields');
+  routeLogger.debug('New package requested, will validate fields');
 
   let packageId: string;
   let packageName: string;
@@ -165,7 +192,7 @@ route.post('/new', upload.none(), async (req, res) => {
     checkType(packageTypeStr, 'string');
     checkType(description, 'string');
   } catch {
-    routeLogger.info('Missing form data (missing_form_data)');
+    routeLogger.info('Missing form data, or invalid types (missing_form_data)');
     return res
       .status(400)
       .send('missing_form_data');
@@ -264,7 +291,7 @@ route.post('/new', upload.none(), async (req, res) => {
         .send('name_in_use');
     }
 
-    await packageDatabase.addPackage(packageId, packageName, author, description, packageType);
+    await packageDatabase.addPackage(packageId, packageName, token.authorId, (await token.getAuthor()).authorName, description, packageType);
     routeLogger.info('Registered new package in database');
 
     res.sendStatus(204);
@@ -276,11 +303,11 @@ route.post('/new', upload.none(), async (req, res) => {
 
 route.post('/upload', upload.single('file'), async (req, res) => {
   const file = req.file;
-  const author = req.user as Author;
+  const token = req.user as AuthToken;
 
   const routeLogger = logger.child({
     ip: req.ip || req.socket.remoteAddress,
-    authorId: author.id,
+    authorId: token.authorId,
     body: req.body,
     route: '/packages/upload'
   });
@@ -307,7 +334,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     dependencies = typeof req.body.dependencies === 'string' && JSON.parse(req.body.dependencies);
     incompatibilities = typeof req.body.incompatibilities === 'string' && JSON.parse(req.body.incompatibilities);
   } catch {
-    routeLogger.info('Missing form data (missing_form_data)');
+    routeLogger.info('Missing form data or contains invalid types (missing_form_data)');
     return res
       .status(400)
       .send('missing_form_data');
@@ -339,7 +366,13 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       .send('invalid_id');
   }
 
-  if (packageVersion.length < 1) {
+  if (!token.canUploadPackageVersion(packageId)) {
+    routeLogger.info('Insufficient permissions to upload a package version');
+    await rm(file.path, { force: true });
+    return res.sendStatus(401);
+  }
+
+  if (!packageVersion.length) {
     routeLogger.info('No version provided (no_version)');
     return res
       .status(400)
@@ -386,15 +419,14 @@ route.post('/upload', upload.single('file'), async (req, res) => {
   }
 
   try {
-    const authorHasPackage = await author.hasPackage(packageId);
+    const author = await token.getAuthor();
+    const authorHasPackage = await packageDatabase.doesAuthorHavePackage(author.authorId, packageId);
 
     if (!authorHasPackage) {
-      routeLogger.info('Author does not own package (unowned_pkg)');
-      return res
-        .status(400)
-        .send('unowned_pkg');
+      routeLogger.info('Author does not own package');
+      return res.status(403);
     }
-    const authorPackages = await author.getPackages();
+    const authorPackages = await packageDatabase.getAuthorPackages(author.authorId);
     const thisPackage = authorPackages.find(p => p.packageId === packageId) as PackageData;
 
     const versionExists = await packageDatabase.versionExists(packageId, version);
@@ -417,7 +449,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
 
     const fileProcessorData: FileProcessorData = {
       zipFileLoc: file.path,
-      authorId: author.id,
+      authorId: author.authorId,
       packageName: thisPackage.packageName,
       packageId,
       packageVersion: version.toString(),
@@ -444,13 +476,6 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       routeLogger.error(err, 'Error while processing package');
     });
   } catch (e) {
-    if (e instanceof InvalidPackageError) {
-      logger.info(e, 'Invalid access config caught after database feeding');
-      return res
-        .status(400)
-        .send(e.shortMessage);
-    }
-
     routeLogger.error(e);
     return res.sendStatus(500);
   }
@@ -458,11 +483,11 @@ route.post('/upload', upload.single('file'), async (req, res) => {
 
 route.post('/retry', upload.single('file'), async (req, res) => {
   const file = req.file;
-  const author = req.user as Author;
+  const token = req.user as AuthToken;
 
   const routeLogger = logger.child({
     ip: req.ip || req.socket.remoteAddress,
-    authorId: author.id,
+    authorId: token.authorId,
     body: req.body,
     route: '/packages/retry'
   });
@@ -508,7 +533,14 @@ route.post('/retry', upload.single('file'), async (req, res) => {
   }
 
   try {
-    const authorPackages = await author.getPackages();
+    const author = await token.getAuthor();
+    const authorPackages = await packageDatabase.getAuthorPackages(author.authorId);
+
+    if (!token.canUploadPackageVersion(packageId)) {
+      routeLogger.info('Insufficient permissions to retry upload');
+      await rm(file.path, { force: true });
+      return res.sendStatus(401);
+    }
 
     const thisPackage = authorPackages.find(p => p.packageId === packageId);
     if (!thisPackage) {
@@ -533,7 +565,7 @@ route.post('/retry', upload.single('file'), async (req, res) => {
 
     const fileProcessorData: FileProcessorData = {
       zipFileLoc: file.path,
-      authorId: author.id,
+      authorId: author.authorId,
       packageName: thisPackage.packageName,
       packageId,
       packageVersion: version.toString(),

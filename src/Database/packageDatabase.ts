@@ -13,7 +13,6 @@
  * either express or implied limitations under the License.
  */
 
-import Author from '../author.js';
 import Version from '../util/version.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import PackageModel, { PackageData, PackageType } from './models/packageModel.js';
@@ -25,17 +24,18 @@ import VersionModel, { VersionData, VersionStatus } from './models/versionModel.
    * @async 
    * @param {string} packageId The package identifier of the new package.
    * @param {string} packageName The name of the new package.
-   * @param {Author} author The author that is creating the package.
+   * @param {string} authorId The id of the author that is creating the package.
+   * @param {string} authorName The name of the author that is creating the package
    * @param {string} description The description of the new package.
    * @param {PackageType} packageType The type of the package that is being created.
    * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
    */
-export async function addPackage(packageId: string, packageName: string, author: Author, description: string, packageType: PackageType): Promise<void> {
+export async function addPackage(packageId: string, packageName: string, authorId: string, authorName: string, description: string, packageType: PackageType): Promise<void> {
   const newPackage = new PackageModel({
     packageId,
     packageName,
-    authorId: author.id,
-    authorName: author.name,
+    authorId,
+    authorName,
     description,
     packageType
   });
@@ -288,10 +288,10 @@ export async function updateDescription(packageId: string, newDescription: strin
 }
 
 /**
- * Get all packages by a certain author
+ * Get all packages by a certain author.
  * 
  * @async
- * @param {string} authorId The id of the author to get the data of.
+ * @param {string} authorId The id of the author to get the packages of.
  * @returns {Promise<PackageData[]>} A promise which resolves to the data of all packages created by the provided author.
  */
 export async function getAuthorPackages(authorId: string): Promise<PackageData[]> {
@@ -302,6 +302,21 @@ export async function getAuthorPackages(authorId: string): Promise<PackageData[]
     .lean()
     .select('-_id -__v')
     .exec();
+}
+
+/** 
+ * Determine if an author owns a package with the package id.
+ * 
+ * @async
+ * @param {string} authorId The id of the author to determine ownership
+ * @param {string} packageId The id of the package to check for.
+ * @returns {Promise<boolean>} A promise which resolves to true if the author owns the package
+ */
+export async function doesAuthorHavePackage(authorId: string, packageId: string): Promise<boolean> {
+  return !!PackageModel.exists({
+    authorId,
+    packageId
+  });
 }
 
 /**

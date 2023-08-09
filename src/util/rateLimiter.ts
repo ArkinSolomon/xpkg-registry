@@ -16,7 +16,7 @@ import { Request, Response, NextFunction } from 'express';
 import '../database/atlasConnect.js';
 import mongoose from 'mongoose';
 import { RateLimiterMongo, RateLimiterRes } from 'rate-limiter-flexible';
-import Author from '../author.js';
+import AuthToken from '../auth/authToken.js';
 
 const rateLimitDB = mongoose.connection.useDb('rate-limits');
 
@@ -44,7 +44,7 @@ export default function rateLimiter(name: string, points: number, duration: numb
     const ip = req.ip || req.socket.remoteAddress;
     let key = ip;
     if (req.user)
-      key = (req.user as Author).id;
+      key = (req.user as AuthToken).authorId;
     
     if (!key)
       return res.sendStatus(409);

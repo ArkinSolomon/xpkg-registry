@@ -15,74 +15,77 @@
 
 import { Router } from 'express';
 import { validateName } from '../util/validators.js';
-import Author from '../author.js';
 import * as packageDatabase from '../database/packageDatabase.js';
 import logger from '../logger.js';
 import { PackageData } from '../database/models/packageModel.js';
 import { VersionData } from '../database/models/versionModel.js';
+import AuthToken, { TokenPermission } from '../auth/authToken.js';
 
 const route = Router();
 
-route.get('/data', (req, res) => {
-  const author = req.user as Author;
+route.get('/data', async (req, res) => {
+  const token = req.user as AuthToken;
 
   const routeLogger = logger.child({
     route: '/account/data',
-    authorId: author.id
+    id: req.id,
+    ip: req.ip || req.socket.remoteAddress,
+    authorId: token.authorId
   });
+
+  if (!token.hasPermission(TokenPermission.ReadAuthorData)) {
+    routeLogger.info('Insufficient permissions to retrieve author data');
+    return res.sendStatus(401);
+  }
   routeLogger.debug('Author requesting their account data');
 
+  const author = await token.getAuthor();
   return res.json({
-    id: author.id,
-    name: author.name,
-    isVerified: author.isVerified,
+    id: author.authorId,
+    name: author.authorName,
+    email: author.authorEmail,
+    isVerified: author.verified,
     usedStorage: author.usedStorage,
     totalStorage: author.totalStorage
   });
 });
 
-route.get('/storage', (req, res) => {
-  const author = req.user as Author;
-
-  const routeLogger = logger.child({
-    route: '/account/storage',
-    authorId: author.id
-  });
-  routeLogger.debug('Author requesting storage data');
-
-  return res.json({
-    usedStorage: author.usedStorage,
-    totalStorage: author.totalStorage
-  });
-});
-
-route.put('/changename', async (req, res) => {
-  const author = req.user as Author;
-  let { newName } = req.body as { newName: string; };
+route.patch('/changename', async (req, res) => {
+  const token = req.user as AuthToken;
+  let { newName } = req.body as { newName?: unknown; };
 
   const routeLogger = logger.child({
     route: '/account/changename',
-    authorId: author.id
+    id: req.id,
+    ip: req.ip || req.socket.remoteAddress,
+    authorId: token.authorId
   });
 
-  if (!newName) {
-    routeLogger.info('New name not provided');
+  if (typeof newName !== 'string') {
+    routeLogger.info('New name not provided, or invalid type');
     return res.sendStatus(400);
   }
 
-  routeLogger.setBindings({
-    newName
-  });
-  newName = newName.trim();
-
   try {
-    const checkName = newName.toLowerCase();
-    if (author.checkName === checkName || !validateName(checkName)) {
+    newName = newName.trim();
+    routeLogger.setBindings({
+      newName
+    });
+
+    const author = await token.getAuthor();
+
+    const checkName = (newName as string).toLowerCase();
+    if (author.authorName.toLowerCase() === checkName || !validateName(checkName)) {
       routeLogger.debug('Author sent invalid name change request');
       return res.sendStatus(400);
     }
 
-    const lastChangeDate = author.lastChangeDate;
+    if (!token.hasPermission(TokenPermission.Admin)) {
+      routeLogger.info('Insufficient permissions to update author data');
+      return res.sendStatus(401);
+    }
+
+    const lastChangeDate = author.lastChange || new Date(0);
 
     // Allow name change if it's been more than 30 days (see https://bobbyhadz.com/blog/javascript-check-if-date-within-30-days)
     const daysSinceChange = Math.abs(lastChangeDate.getTime() - Date.now()) / 8.64e7;
@@ -91,9 +94,9 @@ route.put('/changename', async (req, res) => {
       return res.sendStatus(403);
     }
     
-    await author.changeName(newName);
+    await author.changeName(newName as string);
     routeLogger.debug('Author changed name successfully, notifying author');
-    author.sendEmail('X-Pkg Name changed', `${author.greeting()},\nYour name on X-Pkg has been changed successfully. Your new name is now "${newName}". This name will appear to all users on X-Pkg.`);
+    author.sendEmail('X-Pkg Name changed', `Your name on X-Pkg has been changed successfully. Your new name is now "${newName}". This name will appear to all users on X-Pkg.`);
     res.sendStatus(204);
   } catch (e) {
     logger.error(e);
@@ -102,19 +105,25 @@ route.put('/changename', async (req, res) => {
 });
 
 route.get('/packages', async (req, res) => {
-  const author = req.user as Author;
-  const data: (PackageData & { versions: VersionData[]; })[] = [];
+  const token = req.user as AuthToken;
 
   const routeLogger = logger.child({
     route: '/account/packages',
-    authorId: author.id,
+    authorId: token.authorId,
     id: req.id,
     ip: req.ip || req.socket.remoteAddress
   });
+    
   routeLogger.debug('Author requesting their package data');
 
+  if (!token.hasPermission(TokenPermission.ViewPackages)) {
+    routeLogger.info('Insufficient permissions to retrieve packages');
+    return res.sendStatus(401);
+  }
+
+  const data: (PackageData & { versions: VersionData[]; })[] = [];
   try {
-    const packages = await author.getPackages();
+    const packages = await packageDatabase.getAuthorPackages(token.authorId);
     for (const pkg of packages) {
       const d = {
         ...pkg,
@@ -140,21 +149,39 @@ route.get('/packages', async (req, res) => {
 });
 
 route.post('/reverify', async (req, res) => {
-  const author = req.user as Author;
+  const token = req.user as AuthToken;
+
+  const body = req.body as {
+    validation: unknown;
+  };
+
   const routeLogger = logger.child({
-    route: '/account/reverify',
-    authorId: author.id
+    route: '/account/packages',
+    authorId: token.authorId,
+    id: req.id,
+    ip: req.ip || req.socket.remoteAddress
   });
   routeLogger.debug('Author is attempting to resend a verification email');
 
-  if (author.isVerified) {
-    routeLogger.info('An already-verified author tried to resend a verification email');
+  if (typeof body.validation !== 'string') {
+    routeLogger.info('No reCAPTCHA validation token provided');
     return res.sendStatus(400);
   }
 
+  if (!token.hasPermission(TokenPermission.Admin)) {  
+    routeLogger.info('Insufficient permissions to resent verification email');
+    return res.sendStatus(401);
+  }
+
   try {
-    const token = await author.createVerifyToken();
-    await author.sendEmail('X-Pkg Verification', `Click on this link to verify your account: http://localhost:3000/verify/${token} (this link expires in 24 hours).`);
+    const author = await token.getAuthor();
+    if (author.verified) {
+      routeLogger.info('An already-verified author tried to resend a verification email');
+      return res.sendStatus(403);
+    }
+
+    const verificationToken = await author.createVerifyToken();
+    await author.sendEmail('X-Pkg Verification', `Click on this link to verify your account: http://localhost:3000/verify/${verificationToken} (this link expires in 24 hours).`);
     routeLogger.debug('Author resent verification email');
     res.sendStatus(204);
   } catch(e) {

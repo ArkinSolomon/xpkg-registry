@@ -29,14 +29,16 @@ import bcrypt from 'bcrypt';
 import { Router } from 'express';
 import * as validators from '../util/validators.js';
 import * as authorDatabase from '../database/authorDatabase.js';
+import { getAuthorPackages } from '../database/packageDatabase.js';
 import { decode } from '../util/jwtPromise.js';
 import logger from '../logger.js';
 import { nanoid } from 'nanoid/async';
 import { AccountValidationPayload } from '../database/models/authorModel.js';
 import verifyRecaptcha from '../util/recaptcha.js';
+import AuthToken, { TokenPermission } from '../auth/authToken.js';
+import { PackageData } from '../database/models/packageModel.js';
 
 const route = Router();
-
 
 route.post('/create', async (req, res) => {
   const body = req.body as {
@@ -153,7 +155,7 @@ route.post('/login', async (req, res) => {
     }
 
     routeLogger.setBindings({
-      authorName: author?.authorName
+      authorName: author.authorName
     });
 
     const isValid = await bcrypt.compare(password, author.password);
@@ -176,31 +178,46 @@ route.post('/login', async (req, res) => {
 });
 
 route.post('/verify/:verificationToken', async (req, res) => {
-  let id;
-  try {
-    const payload = await decode(req.params.verificationToken, process.env.EMAIL_VERIFY_SECRET as string) as AccountValidationPayload;
-    id = payload.id;
-  } catch {
-    logger.info(`Invalid token in verification request from ${req.ip || req.socket.remoteAddress}`);
-    return res.sendStatus(401);
-  }
+  const { validation } = req.body as { validation: unknown; };
 
   const routeLogger = logger.child({
     ip: req.ip || req.socket.remoteAddress,
     route: '/auth/verify/:verificationToken',
-    authorId: id,
-    requestId: req.id
+    id: req.id
   });
 
+  if (typeof validation !== 'string') {
+    routeLogger.info('No reCAPTCHA validation provided');
+    return res.sendStatus(400);
+  }
+
+  const isTokenValid = await verifyRecaptcha(validation, req.ip || req.socket.remoteAddress as string);
+  if (!isTokenValid) {
+    routeLogger.info('Could not validate reCAPTCHA token');
+    return res.sendStatus(418);
+  }
+
+  let authorId;
   try {
-    const isVerified = await authorDatabase.isVerified(id);
+    const payload = await decode(req.params.verificationToken, process.env.EMAIL_VERIFY_SECRET as string) as AccountValidationPayload;
+    authorId = payload.id;
+  } catch {
+    routeLogger.info(`Invalid token in verification request from ${req.ip || req.socket.remoteAddress}`);
+    return res.sendStatus(401);
+  }
+
+  routeLogger.setBindings({
+    authorId
+  });
+  try {
+    const isVerified = await authorDatabase.isVerified(authorId);
     if (isVerified) { 
       routeLogger.info('Author already verified, can not reverify');
       return res.sendStatus(403);
     }
 
-    routeLogger.info('Will attempt to set the verification status of the author to true');
-    await authorDatabase.verify(id);
+    routeLogger.debug('Will attempt to set the verification status of the author to true');
+    await authorDatabase.verify(authorId);
     routeLogger.info('Verification status changed');
     res.sendStatus(204);
   } catch(e) {
@@ -208,5 +225,241 @@ route.post('/verify/:verificationToken', async (req, res) => {
     res.sendStatus(500);
   }
 });
+
+route.post('/issue', async (req, res) => {
+  const token = req.user as AuthToken;
+  const body = req.body as {
+    expires: unknown;
+    name: unknown;
+    description: unknown;
+    permissions: unknown;
+    versionUploadPackages: unknown;
+    descriptionUpdatePackages: unknown;
+  };
+
+  const routeLogger = logger.child({
+    ip: req.ip || req.socket.remoteAddress,
+    route: '/auth/issue',
+    authorId: token.authorId,
+    requestId: req.id
+  });
+  routeLogger.debug('Author wants to issue a token');
+
+  if (!token.hasPermission(TokenPermission.Admin)) {  
+    routeLogger.info('Insufficient permissions to issue a new token');
+    return res.sendStatus(401);
+  }
+
+  if (typeof body.expires !== 'number' ||
+    typeof body.name !== 'string' ||
+    (body.description && typeof body.description !== 'string') ||
+    typeof body.permissions !== 'number' ||
+    (body.versionUploadPackages && !Array.isArray(body.versionUploadPackages)) ||
+    (body.descriptionUpdatePackages && !Array.isArray(body.descriptionUpdatePackages))) {
+    return res
+      .status(400)
+      .send('missing_form_data');
+  }
+
+  routeLogger.debug('All form data provided');
+
+  const author = await token.getAuthor();
+  if (author.tokens.length >= 64) {
+    routeLogger.info('Author has too many tokens (too_many_tokens)');
+    return res
+      .status(400)
+      .send('too_many_tokens');
+  }
+
+  const { expires, permissions } = body;
+  let description = body.description as string | undefined;
+
+  if (description) {
+    description = description.trim();
+    if (description.length === 0)
+      description = '';
+    else if (description.length > 256) {
+      routeLogger.info('Token description too long (long_desc)');
+      return res
+        .status(400)
+        .send('long_desc');
+    } else
+      description = description.trim();
+  }
+
+  routeLogger.debug('Description checks passed');
+
+  const name = body.name.trim();
+  if (name.length < 3) {
+    routeLogger.info('Token name too short (short_name)');
+    return res
+      .status(400)
+      .send('short_name'); 
+  } else if (name.length > 32) {
+    routeLogger.info('Token name too long (long_name)');
+    return res
+      .status(400)
+      .send('long_name'); 
+  } else if (author.hasTokenName(name)) {
+    routeLogger.info('Author already has token with name (name_exists)');
+    return res
+      .status(400)
+      .send('name_exists');
+  }
+
+  routeLogger.debug('Name checks passed');
+
+  if (expires <= 0) {
+    routeLogger.info('Token expiry is less than or equal to zero (neg_or_zero_expiry)');
+    return res
+      .status(400)
+      .send('neg_or_zero_expiry');
+  } else if (expires > 365) {
+    routeLogger.info('Token expiry is longer than 365 days (long_expiry)');
+    return res
+      .status(400)
+      .send('long_expiry');
+  } else if (!Number.isSafeInteger(expires)) {
+    routeLogger.info('Non-integer provided for token expiry (float_expiry)');
+    return res
+      .status(400)
+      .send('float_expiry');
+  }
+
+  const hasSpecificDescriptionUpdatePermission = (permissions & TokenPermission.UpdateDescriptionSpecificPackages) > 0;
+  const hasSpecificVersionUploadPermission = (permissions & TokenPermission.UploadVersionSpecificPackages) > 0;
+
+  if (permissions <= 0) {
+    routeLogger.info('No permissions provided (zero_perm)');
+    return res
+      .status(400)
+      .send('zero_perm');
+  } else if (!Number.isSafeInteger(permissions)) {
+    routeLogger.info('Unsafe integer or floating point provided (float_perm)');
+    return res
+      .status(400)
+      .send('float_perm');
+  }
+
+  // If there is a bit set greater than the highest permission bit
+  else if (permissions >= 1 << 11 /* << Update this */) {
+    routeLogger.info('Permissions number too large (large_perm)');
+    return res
+      .status(400)
+      .send('large_perm');
+  } else if ((permissions & TokenPermission.Admin) > 0) {
+    routeLogger.info('Attempt to generate admin token (admin_perm)');
+    return res
+      .status(400)
+      .send('admin_perm');
+  } else if ((permissions & TokenPermission.UpdateDescriptionAnyPackage) > 0 && hasSpecificDescriptionUpdatePermission) {
+    routeLogger.info('Permissions UpdateDescriptionAnyPackage and UpdateDescriptionSpecificPackage are both provided (invalid_perm)');
+    return res
+      .status(400)
+      .send('invalid_perm');
+  } else if (hasSpecificDescriptionUpdatePermission && (!body.descriptionUpdatePackages || !(body.descriptionUpdatePackages as string[]).length)) {
+    routeLogger.info('UpdateDescriptionSpecificPackage permission provided, but no array was given (invalid_perm)');
+    return res
+      .status(400)
+      .send('invalid_perm');
+  } else if ((permissions & TokenPermission.UploadVersionAnyPackage) > 0 && hasSpecificVersionUploadPermission) {
+    routeLogger.info('Permissions UploadVersionsAnyPackage and UploadVersionSpecificPackages are both provided (invalid_perm)');
+    return res
+      .status(400)
+      .send('invalid_perm');
+  } else if (hasSpecificVersionUploadPermission && (!body.versionUploadPackages || !(body.versionUploadPackages as string[]).length)) {
+    routeLogger.info('UploadVersionSpecificPackages permission provided, but no array was given (invalid_perm)');
+    return res
+      .status(400)
+      .send('invalid_perm');
+  }
+
+  routeLogger.debug('Permissions checks passed');
+
+  try {
+    const author = await token.getAuthor();
+    const authorPackages = await getAuthorPackages(author.authorId);
+
+    routeLogger.debug('Retrieved author data');
+
+    const unprocessedDescriptionUpdatePackages = body.descriptionUpdatePackages as string[] ?? [];
+    const unprocessedVersionUploadPackages = body.versionUploadPackages as string[] ?? [];
+
+    if (unprocessedDescriptionUpdatePackages.length > 32 || unprocessedVersionUploadPackages.length > 32) {
+      routeLogger.info('Too many specific packages specified (long_arr)');
+      return res
+        .status(400)
+        .send('long_arr');
+    }
+
+    const descriptionUpdatePackages = processPackageIdList(unprocessedDescriptionUpdatePackages, authorPackages);
+    const versionUploadPackages = processPackageIdList(unprocessedVersionUploadPackages, authorPackages);
+
+    if (!descriptionUpdatePackages || !versionUploadPackages) {
+      routeLogger.info('Package id lists failed to process (invalid_arr)');
+      return res
+        .status(400)
+        .send('invalid_arr');
+    }
+
+    routeLogger.debug('Processed packages');
+
+    if (!hasSpecificDescriptionUpdatePermission && descriptionUpdatePackages.length || !hasSpecificVersionUploadPermission && versionUploadPackages.length) {
+      routeLogger.info('Specific permissions not granted, but specific array was recieved (extra_arr)');
+      return res
+        .status(400)
+        .send('extra_arr');
+    }
+  
+    const tokenSession = await nanoid();
+    const newToken = new AuthToken({
+      tokenSession,
+      session: author.session,
+      authorId: token.authorId,
+      permissions,
+      descriptionUpdatePackages,
+      versionUploadPackages,
+    });
+    routeLogger.debug('Token information generated');
+
+    await author.registerNewToken(newToken, expires, name, description);
+    routeLogger.debug('Registered new token in author database');
+
+    const signed = await newToken.sign(`${expires}d`);
+    routeLogger.debug('Signed new token');
+
+    await author.sendEmail('New Token', 'A new token has been issued for your X-Pkg account. If you did not request this, reset your password immediately');
+    logger.info('New token signed successfully');
+    return res.json({
+      token: signed
+    });
+  } catch {
+    return res.status(500);
+  }
+});
+
+/**
+ * Check a set of package ids to make sure that it is valid, and that the author owns all of them. Also ensures that there are no duplicates.
+ * 
+ * @param {string[]} packages The list of package ids to process.
+ * @param {PackageData[]} authorPackages The package data of an author.
+ * @returns {string[]|null} The processed list of package ids, or null if the list is invalid.
+ */
+function processPackageIdList(packages: string[], authorPackages: PackageData[]): string[] | null {
+  const authorPackageSet = new Set(authorPackages.map(p => p.packageId));
+  const processedPackages: string[] = [];
+  for (let packageId of packages) {
+    if (typeof packageId !== 'string')
+      return null;
+    
+    packageId = packageId.trim().toLowerCase();
+    if (!authorPackageSet.has(packageId))
+      return null;
+    
+    processedPackages.push(packageId);
+    authorPackageSet.delete(packageId);
+  }
+  return processedPackages;
+}
 
 export default route;

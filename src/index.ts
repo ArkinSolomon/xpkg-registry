@@ -18,7 +18,6 @@ dotenv.config();
 import Express from 'express';
 import fs from 'fs/promises';
 import path from 'path';
-import * as jwtPromise from './util/jwtPromise.js';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import { pinoHttp } from 'pino-http';
@@ -71,16 +70,15 @@ import packages from './routes/packages.js';
 import auth from './routes/auth.js';
 import account from './routes/account.js';
 
-import * as authorDatabase from './database/authorDatabase.js';
 import * as packageDatabase from './database/packageDatabase.js';
-import Author from './author.js';
 import { PackageData } from './database/models/packageModel.js';
 import { VersionStatus } from './database/models/versionModel.js';
-import { AuthTokenPayload } from './database/models/authorModel.js';
 import rateLimiter from './util/rateLimiter.js';
+import authorizeRoute from './auth/authorizeRoute.js';
 
 // Update this with all routes that require tokens
 const authRoutes = [
+  '/auth/issue',
   '/packages/upload',
   '/packages/new',
   '/packages/description',
@@ -89,60 +87,25 @@ const authRoutes = [
   '/account/*'
 ];
 
-// A cache indexed by author id
-let authSessionCache: Record<string, string> = {};
-let authorCache: Record<string, Author> = {};
+app.use(authRoutes, authorizeRoute);
 
-// We don't want to hold the cache for too long
-setInterval(() => {
-  authSessionCache = {};
-  authorCache = {};
-}, 1500);
+app.use('/account/data', rateLimiter('account-data', 8, 5));
+app.use('/account/changename', rateLimiter('account-changename', 3, 5));
+app.use('/account/packages', rateLimiter('account-packages', 5, 3));
 
-app.use(authRoutes, async (req, res, next) => {
-  try {
-    const token = req.headers.authorization;
-    if (!token || typeof token !== 'string')
+app.use('/auth/login', rateLimiter('auth-login', 5, 3));
+app.use('/auth/create', rateLimiter('auth-create', 5, 3));
+app.use('/auth/verify', rateLimiter('auth-verify', 3, 4));
+app.use('/auth/issue', rateLimiter('auth-issue', 3, 3));
 
-      // Just throw and let exception handling redirect/notify
-      throw null;
+app.use('/packages/info', rateLimiter('packages-info', 10, 2));
+app.use('/packages/new', rateLimiter('packages-new', 3, 5));
+app.use('/packages/upload', rateLimiter('packages-upload', 3, 8));
+app.use('/packages/description', rateLimiter('packages-description', 3, 4));
 
-    const payload = await jwtPromise.decode(token, process.env.AUTH_SECRET as string) as AuthTokenPayload;
-    const { id, session } = payload;
-  
-    const expectedSession = Object.hasOwnProperty.call(authSessionCache, id) ?
-      authSessionCache[id] : await authorDatabase.getSession(id);
-    
-    // If the session is invalid remove it from the cache
-    if (session !== expectedSession) {
-      delete authSessionCache[id];
-      delete authorCache[id];
-
-      logger.info(`Invalid session: ${session}`);
-      throw null;
-    }
-    
-    const author = Object.hasOwnProperty.call(authorCache, id) ?
-      authorCache[id] : await Author.fromDatabase(id);
-
-    // Update the cache
-    authSessionCache[id] = expectedSession;
-    authorCache[id] = author;
-
-    req.user = author;
-    next();
-  } catch (_) {
-    logger.info(`Unauthorized login attempt from ${req.ip || req.socket.remoteAddress}`);
-    return res.sendStatus(401);
-  }
-});
-
-app.use('/auth/login', rateLimiter('login', 5, 3));
-app.use('/auth/create', rateLimiter('create', 5, 3));
-
-app.use('/packages', packages);
-app.use('/auth', auth);
 app.use('/account', account);
+app.use('/auth', auth);
+app.use('/packages', packages);
 
 /**
  * Update the JSON file which is storing all of the data.

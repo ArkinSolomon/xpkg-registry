@@ -58,9 +58,9 @@ import loggerBase from '../logger.js';
 import { nanoid } from 'nanoid/async';
 import { isMainThread, parentPort, workerData } from 'worker_threads';
 import * as packageDatabase from '../database/packageDatabase.js';
+import * as authorDatabase from '../database/authorDatabase.js';
 import hasha from 'hasha';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import Author from '../author.js';
 import JobsServiceManager, { JobData, JobType, PackagingInfo } from './jobsServiceManager.js';
 import { unzippedFilesLocation, xpkgFilesLocation } from '../routes/packages.js';
 import childProcess from 'child_process';
@@ -104,7 +104,7 @@ const logger = loggerBase.child({
 logger.info('Starting processing of package');
 parentPort?.postMessage('started');
 
-const author = await Author.fromDatabase(authorId);
+let author = await authorDatabase.getAuthorDoc(authorId);
 
 const jobData: JobData = {
   jobType: JobType.Packaging,
@@ -268,6 +268,7 @@ try {
   logger.debug('Calculated installed size');
 
   logger.debug('Trying to consume storage');
+  author = await authorDatabase.getAuthorDoc(authorId);
   const canConsume = await author.tryConsumeStorage(fileSize);
 
   if (!canConsume) {
@@ -329,9 +330,9 @@ try {
   logger.debug('Deleted local xpkg file, sending job done to jobs service');
 
   if (accessConfig.isStored)
-    await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}`);
+    await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `Your package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}`);
   else 
-    await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `${author.greeting()},\n\nYour package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}\nLink: ${privateUrl}`);
+    await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `Your package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}\nLink: ${privateUrl}`);
 
   logger.debug('Author notified of process success, notifying jobs service');
   await jobsService.completed();
@@ -434,7 +435,7 @@ async function abort(): Promise<void> {
  * @returns {Promise<void>} A promise which resolves once the email is sent.
  */
 async function sendFailureEmail(failureStatus: VersionStatus): Promise<void> {
-  return author.sendEmail(`X-Pkg Packaging Failure (${packageId})`, `${author.greeting()},\n\nYour package, ${packageId}, was not able to be processed. ${getVersionStatusReason(failureStatus)}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}`);
+  return author.sendEmail(`X-Pkg Packaging Failure (${packageId})`, `Your package, ${packageId}, was not able to be processed. ${getVersionStatusReason(failureStatus)}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}`);
 }
 
 /**

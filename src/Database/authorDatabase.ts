@@ -109,7 +109,7 @@ export async function getSession(authorId: string): Promise<string> {
 export async function getAuthor(authorId: string): Promise<AuthorData> {
   const author = await AuthorModel.findOne({
     authorId,
-  }, '-password -session -__v -_id')
+  }, '-password -session -tokens -__v -_id')
     .lean()
     .exec();
   
@@ -117,6 +117,25 @@ export async function getAuthor(authorId: string): Promise<AuthorData> {
     throw new NoSuchAccountError('authorId', authorId);
   
   return author as AuthorData;
+}
+
+/**
+ * Get the Mongoose document of an author by their id.
+ * 
+ * @param {string} authorId The id of the author to get the Mongoose document of.
+ * @returns {Promise} The Mongoose document of the author.
+ * @throws {NoSuchAccountError} Error thrown if no account exists with the given id.
+ */
+export async function getAuthorDoc(authorId: string) {
+  const author = await AuthorModel.findOne({
+    authorId,
+  }, '-password')
+    .exec();
+  
+  if (!author)
+    throw new NoSuchAccountError('authorId', authorId);
+  
+  return author;
 }
 
 /**

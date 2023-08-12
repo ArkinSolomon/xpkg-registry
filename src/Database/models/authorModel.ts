@@ -75,6 +75,7 @@ export type DatabaseAuthor = AuthorData & {
  * @property {number} permissions The permissions of the token.
  * @property {string[]} versionUploadPackages Specific packages that this token has permission to upload versions for.
  * @property {string[]} descriptionUpdatePackages Specific packages that this token has permission to update the descriptions of.
+ * @property {string[]} updateVersionDataPackages Specific packages that this token has permission to update the data of the versions.
  * @property {number} tokenExpiry A non-zero number which is the amount of days until the token expires. 
  */
 type TokenInformation = {
@@ -84,6 +85,7 @@ type TokenInformation = {
   permissions: number;
   versionUploadPackages: string[];
   descriptionUpdatePackages: string[];
+  updateVersionDataPackages: string[];
   tokenExpiry: number;
 };
 
@@ -146,6 +148,10 @@ const tokenInformationSchema = new Schema<TokenInformation>({
     required: true
   },
   descriptionUpdatePackages: {
+    type: [String],
+    required: true
+  },
+  updateVersionDataPackages: {
     type: [String],
     required: true
   },
@@ -216,7 +222,8 @@ const authorSchema = new Schema<DatabaseAuthor>({
         session: this.session,
         permissions: TokenPermission.Admin,
         versionUploadPackages: [],
-        descriptionUpdatePackages: []
+        descriptionUpdatePackages: [],
+        updateVersionDataPackages: []
       });
 
       return await token.sign('6h');
@@ -241,9 +248,10 @@ const authorSchema = new Schema<DatabaseAuthor>({
       if (!tokenSession)
         throw new Error('Can not register a token for an author without a token session');
 
-      let { versionUploadPackages, descriptionUpdatePackages } = token;
+      let { versionUploadPackages, descriptionUpdatePackages, updateVersionDataPackages } = token;
       versionUploadPackages ??= [];
       descriptionUpdatePackages ??= [];
+      updateVersionDataPackages ??= [];
 
       await AuthorModel.updateOne({
         authorId: this.authorId,
@@ -256,6 +264,7 @@ const authorSchema = new Schema<DatabaseAuthor>({
             permissions: token.permissionsNumber,
             versionUploadPackages,
             descriptionUpdatePackages,
+            updateVersionDataPackages,
             tokenExpiry
           }
         }

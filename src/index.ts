@@ -12,6 +12,43 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
+
+/**
+ * The full registry data sent when requesting `/packages`.
+ * 
+ * @typedef {Object} FullRegistryData
+ * @property {string} generated The ISO string of when the data was generated.
+ * @property {Object[]} packages The packages with all of its data on the registry.
+ * @property {string} packages.packageId The identifier of the package.
+ * @property {string} packages.packageName The name of the package.
+ * @property {string} packages.authorId The identifier of the author.
+ * @property {string} packages.authorName The name of the author.
+ * @property {string} packages.description The description of the package.
+ * @property {PackageType} packages.packageType The type of the package.
+ * @property {Object[]} packages.versions All of the versions of the package.
+ * @property {string} packages.versions.version The version string of the package version.
+ * @property {[string, string][]} packages.versions.dependencies All of the dependencies of the package.
+ * @property {[string, string][]} packages.versions.incompatibilities All of the incompatibilities of the package.
+ * @property {string} packages.versions.xplaneSelection The X-Plane selection string of the version.
+ */
+type FullRegistryData = {
+  generated: string;
+  packages: {
+    packageId: string;
+    packageName: string;
+    authorId: string;
+    authorName: string;
+    description: string;
+    packageType: PackageType;
+    versions: {
+      version: string;
+      dependencies: [string, string][];
+      incompatibilities: [string, string][];
+      xplaneSelection: string;
+    }[];
+  }[];
+};
+
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -71,7 +108,7 @@ import auth from './routes/auth.js';
 import account from './routes/account.js';
 
 import * as packageDatabase from './database/packageDatabase.js';
-import { PackageData } from './database/models/packageModel.js';
+import { PackageType } from './database/models/packageModel.js';
 import { VersionStatus } from './database/models/versionModel.js';
 import rateLimiter from './util/rateLimiter.js';
 import authorizeRoute from './auth/authorizeRoute.js';
@@ -84,10 +121,13 @@ const authRoutes = [
   '/packages/description',
   '/packages/upload',
   '/packages/retry',
+  '/packages/incompatibilities',
   '/account/*'
 ];
 
 app.use(authRoutes, authorizeRoute);
+
+app.use('/meta', rateLimiter('meta', 10, 10));
 
 app.use('/account/data', rateLimiter('account-data', 8, 5));
 app.use('/account/changename', rateLimiter('account-changename', 3, 5));
@@ -102,10 +142,21 @@ app.use('/packages/info', rateLimiter('packages-info', 10, 2));
 app.use('/packages/new', rateLimiter('packages-new', 3, 5));
 app.use('/packages/upload', rateLimiter('packages-upload', 3, 8));
 app.use('/packages/description', rateLimiter('packages-description', 3, 4));
+app.use('/packages/incompatibilities', rateLimiter('packages-incompatibilities', 3, 4));
 
 app.use('/account', account);
 app.use('/auth', auth);
 app.use('/packages', packages);
+
+app.get('/meta', (_, res) => {
+  res
+    .status(200)
+    .json({
+      name: 'X-Pkg',
+      identifier: 'xpkg',
+      description: 'X-Pkg\'s official repository.'
+    });
+});
 
 /**
  * Update the JSON file which is storing all of the data.
@@ -115,26 +166,40 @@ app.use('/packages', packages);
  */
 async function updateData(): Promise<void> {
   logger.debug('Updating package data');
-  const data: (PackageData & { versions: string[]; })[] = [];
+  const data: FullRegistryData = {
+    generated: '',
+    packages: []
+  };
 
   const allPackageData = await packageDatabase.getPackageData();
   for (const pkg of allPackageData) {
-    const newData = {
-      ...pkg,
-      versions: [] as string[]
+    const pkgData: FullRegistryData['packages'][0] = {
+      packageId: pkg.packageId,
+      packageName: pkg.packageName,
+      authorId: pkg.authorId,
+      authorName: pkg.authorName,
+      description: pkg.description,
+      packageType: pkg.packageType,
+      versions: []
     };
 
     // Get only the version strings of all of the versions of the package
-    newData.versions = (await packageDatabase.getVersionData(pkg.packageId))
+    pkgData.versions = (await packageDatabase.getVersionData(pkg.packageId))
       .filter(v => v.isPublic && v.status === VersionStatus.Processed)
-      .map(v => v.version);
+      .map(v => ({
+        version: v.version,
+        dependencies: v.dependencies,
+        incompatibilities: v.incompatibilities,
+        xplaneSelection: v.xpSelection,
+      }));
 
-    if (newData.versions.length)
-      data.push(newData);
+    if (pkgData.versions.length)
+      data.packages.push(pkgData);
   }
 
-  logger.debug(`Package data updated, ${data.length || 'no'} package${data.length == 1 ? '' : 's'}`);
-  return fs.writeFile(storeFile, JSON.stringify({ data }), 'utf-8');
+  logger.debug(`Package data updated, ${data.packages.length || 'no'} package${data.packages.length == 1 ? '' : 's'}`);
+  data.generated = new Date().toISOString();
+  return fs.writeFile(storeFile, JSON.stringify(data), 'utf-8');
 }
 
 await updateData();

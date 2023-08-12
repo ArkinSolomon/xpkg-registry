@@ -195,18 +195,18 @@ export async function getVersionData(packageId: string): Promise<VersionData[]>;
  * Get the data for a specific version of a package.
  * 
  * @async
- * @param {string} packageId The id of the package to get the version data for.
- * @param {Version} version The version string of the package to get the data for.
+ * @param {string} packageId The identifier of the package to get the version data for.
+ * @param {Version} version The version of the package to get the data for.
  * @returns {Promise<VersionData>} A promise which resolves to the version data for the specified version of the requested package.
  * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
  */
 export async function getVersionData(packageId: string, version: Version): Promise<VersionData>;
 
-export async function getVersionData(packageId: string, version?: Version): Promise<VersionData[] | VersionData>{
+export async function getVersionData(packageId: string, version?: Version): Promise<VersionData[] | VersionData> {
   if (version) {
     const versionDoc = await VersionModel.findOne({
       packageId,
-      version
+      version: version.toString()
     })
       .lean()
       .select('-_id -__v')
@@ -220,6 +220,28 @@ export async function getVersionData(packageId: string, version?: Version): Prom
   return VersionModel.find({ packageId })
     .lean()
     .select('-_id -__v')
+    .exec();
+}
+
+/**
+ * Update the incompatibilities of a package version by overwriting the old ones.
+ *
+ * @async
+ * @param {string} packageId The identifier of the package to update the incompatibilities of.
+ * @param {Version} version The version of the package to update the incompatibilities of.
+ * @param {[string, string][]} incompatibilities The new incompatibilities of the package to overwrite.
+ * @returns {Promise<void>} A promise which resolves if the incompatibilities are updated successfully.
+ * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
+ */
+export async function updateVersionIncompatibilities(packageId: string, version: Version, incompatibilities: [string, string][]): Promise<void> {
+  await VersionModel.updateOne({
+    packageId,
+    version: version.toString()
+  }, {
+    $set: {
+      incompatibilities
+    }
+  })
     .exec();
 }
 

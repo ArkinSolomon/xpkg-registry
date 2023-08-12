@@ -24,14 +24,14 @@
  * @property {string} packageVersion The version of the package version that the user provided as a string. We can't send Version objects to a worker.
  * @property {PackageType} packageType The type of the package that the user provided.
  * @property {[string, string][]} dependencies The list of dependencies of the package, the name then version selection string.
- * @property {[string, string][]} incompatibilities The list of incompatibilites of the package, the name then version selection string.
+ * @property {[string, string][]} incompatibilities The list of incompatibilities of the package, the name then version selection string.
  * @property {Object} accessConfig The access config of the package.
  * @property {boolean} accessConfig.isPublic True if the package is public.
  * @property {boolean} accessConfig.isPrivate True if the package is private.
- * @property {boolean} accessConfig.isStroed True if the package is stored.
+ * @property {boolean} accessConfig.isStored True if the package is stored.
  * @property {boolean} xpSelection The X-Plane selection string.
  */
-export type FileProcessorData = { 
+export type FileProcessorData = {
   zipFileLoc: string;
   authorId: string;
   packageName: string;
@@ -46,7 +46,7 @@ export type FileProcessorData = {
     isStored: boolean;
   };
   xpSelection: string;
-}
+};
 
 import fs from 'fs/promises';
 import { existsSync as exists, rmSync } from 'fs';
@@ -84,9 +84,7 @@ const {
   packageId,
   packageType,
   dependencies,
-  incompatibilities,
-  accessConfig,
-  xpSelection
+  accessConfig
 } = data;
 const [tempId, awsId] = await Promise.all([nanoid(32), nanoid(64)]);
 
@@ -196,9 +194,7 @@ try {
     packageId,
     packageVersion: packageVersion.toString(),
     authorId,
-    dependencies,
-    incompatibilities,
-    xpSelection
+    dependencies
   };
 
   logger.debug('Processing files');

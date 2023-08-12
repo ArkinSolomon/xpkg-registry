@@ -31,7 +31,7 @@ import SelectionChecker from '../util/selectionChecker.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import { PackageData, PackageType } from '../database/models/packageModel.js';
 import { VersionStatus } from '../database/models/versionModel.js';
-import AuthToken from '../auth/authToken.js';
+import AuthToken, { TokenPermission } from '../auth/authToken.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -61,10 +61,7 @@ route.get('/info/:packageId/:version', async (req, res) => {
     version: unknown;
   };
 
-  if (typeof versionString !== 'string' || typeof packageId !== 'string')
-    return res.sendStatus(400);
-  
-  if (!validateId(packageId))
+  if (typeof versionString !== 'string' || typeof packageId !== 'string' || !validators.validateId(packageId))
     return res.sendStatus(400);
 
   try {
@@ -134,7 +131,7 @@ route.patch('/description', async (req, res) => {
         .send('long_desc');
     }
 
-    if (!validateId(packageId)) {
+    if (!validators.validateId(packageId)) {
       routeLogger.info('Package identifier invalid (invalid_id)');
       return res
         .status(400)
@@ -220,7 +217,7 @@ route.post('/new', upload.none(), async (req, res) => {
       .status(400)
       .send('long_id');
   }
-  else if (!validateId(packageId)) { 
+  else if (!validators.validateId(packageId)) { 
     routeLogger.info('Invalid package id (invalid_id)');
     return res
       .status(400)
@@ -359,7 +356,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       .status(400)
       .send('long_id');
   }
-  else if (!validateId(packageId)) { 
+  else if (!validators.validateId(packageId)) { 
     routeLogger.info('Invalid package id (invalid_id)');
     return res
       .status(400)
@@ -604,6 +601,114 @@ route.post('/retry', upload.single('file'), async (req, res) => {
   }
 });
 
+route.patch('/incompatibilities', async (req, res) => {
+  const token = req.user as AuthToken;
+  const body = req.body as {
+    packageId: unknown;
+    version: unknown;
+    incompatibilities: unknown;
+  };
+
+  const routeLogger = logger.child({
+    ip: req.ip || req.socket.remoteAddress,
+    authorId: token.authorId,
+    body: req.body,
+    route: '/packages/incompatibilities'
+  });
+
+  if (typeof body.version !== 'string' || !Array.isArray(body.incompatibilities)) {
+    routeLogger.info('Request body contains invalid data types or is missing data');
+    return res.sendStatus(400);
+  }
+
+  if (body.incompatibilities.length > 128) {
+    routeLogger.info('Too many incompatibilities');
+    return res.sendStatus(400);
+  }
+
+  const packageId = (body.packageId as string).trim().toLowerCase();
+  if (!validators.validateId(packageId)) {
+    routeLogger.info('Request body package identifier is invalid');
+    return res.sendStatus(400);
+  }
+
+  const version = Version.fromString(body.version);
+  if (!version) {
+    routeLogger.info('Invalid version string');
+    return res.sendStatus(400);
+  }
+
+  routeLogger.setBindings({
+    packageId,
+    version: body.version
+  });
+
+  if (!token.canUpdateVersionData(packageId)) {
+    routeLogger.info('Insufficient permissions to update incompatibilities');
+    return res.sendStatus(401);
+  }
+
+  let versionData;
+  try {
+    versionData = await packageDatabase.getVersionData(packageId, version);
+  } catch (e) {
+    if (e instanceof NoSuchPackageError) {
+      routeLogger.info('No such package found');
+      return res.sendStatus(401);
+    }
+
+    routeLogger.error(e);
+    return res.sendStatus(500);
+  }
+
+  const dependencyIdList = versionData.dependencies.map(d => d[0]);
+  const incompatibilityMap: Map<string, string> = new Map();
+
+  for (const incompatibility of body.incompatibilities as unknown[]) {
+    if (!Array.isArray(incompatibility) || incompatibility.length !== 2) {
+      routeLogger.info('Invalid incompatiblility tuple');
+      return res.sendStatus(400);
+    }
+
+    const incompatibilityId = incompatibility[0].trim().toLowerCase();
+    const incompatibilitySelection = incompatibility[1];
+
+    if (typeof incompatibilityId !== 'string' || typeof incompatibilitySelection !== 'string') {
+      routeLogger.info('Incompatibility tuple contains invalid types');
+      return res.sendStatus(400);
+    }
+
+    if (!validators.validateId(incompatibilityId)) {
+      routeLogger.info('Invalid incompatibility identifer');
+      return res.sendStatus(400);
+    }
+    
+    if (incompatibilityId === packageId || dependencyIdList.includes(incompatibilityId)) {
+      routeLogger.info('Declared incompatibility is self or a dependency');
+      return res.sendStatus(400);
+    }
+
+    if (incompatibilityMap.has(incompatibilityId)) {
+      const oldSelection = incompatibilityMap.get(incompatibilityId);
+      incompatibilityMap.set(incompatibilityId, oldSelection + ',' + incompatibilitySelection);
+    } else
+      incompatibilityMap.set(incompatibilityId, incompatibilitySelection);
+  }
+
+  // Make sure we simplify all selections before putting them back into the database
+  const newIncompatibilities = Array.from(incompatibilityMap.entries());
+  newIncompatibilities.every(i => i[1] = new SelectionChecker(i[1]).toString());
+
+  try {
+    await packageDatabase.updateVersionIncompatibilities(packageId, version, newIncompatibilities);
+    routeLogger.info('Incompatibilities updated successfully');
+    res.sendStatus(204);
+  } catch (e) {
+    logger.error(e);
+    return res.sendStatus(500);
+  }
+});
+
 /**
  * Check the type of a variable and throw an exception if they don't match.
  * 
@@ -633,16 +738,6 @@ function getPackageType(packageType: string): PackageType {
   default:
     throw new Error(`Invalid package type: "${packageType}"`);
   }
-}
-
-/**
- * Check if a package id is valid.
- * 
- * @param {string} id The package id to check.
- * @returns {boolean} True if the package id is valid, otherwise false.
- */
-function validateId(id: string): boolean {
-  return (id && /^[a-z]([a-z]|[_\-.]|\d){5,31}$/i.test(id)) as boolean;
 }
 
 export default route;

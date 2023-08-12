@@ -235,6 +235,7 @@ route.post('/issue', async (req, res) => {
     permissions: unknown;
     versionUploadPackages: unknown;
     descriptionUpdatePackages: unknown;
+    updateVersionDataPackages: unknown;
   };
 
   const routeLogger = logger.child({
@@ -255,7 +256,9 @@ route.post('/issue', async (req, res) => {
     (body.description && typeof body.description !== 'string') ||
     typeof body.permissions !== 'number' ||
     (body.versionUploadPackages && !Array.isArray(body.versionUploadPackages)) ||
-    (body.descriptionUpdatePackages && !Array.isArray(body.descriptionUpdatePackages))) {
+    (body.descriptionUpdatePackages && !Array.isArray(body.descriptionUpdatePackages)) ||
+    (body.updateVersionDataPackages && !Array.isArray(body.updateVersionDataPackages))
+  ) {
     return res
       .status(400)
       .send('missing_form_data');
@@ -328,6 +331,7 @@ route.post('/issue', async (req, res) => {
 
   const hasSpecificDescriptionUpdatePermission = (permissions & TokenPermission.UpdateDescriptionSpecificPackages) > 0;
   const hasSpecificVersionUploadPermission = (permissions & TokenPermission.UploadVersionSpecificPackages) > 0;
+  const hasSpecificUpdateVersionDataPermission = (permissions & TokenPermission.UploadVersionSpecificPackages) > 0;
 
   if (permissions <= 0) {
     routeLogger.info('No permissions provided (zero_perm)');
@@ -342,7 +346,7 @@ route.post('/issue', async (req, res) => {
   }
 
   // If there is a bit set greater than the highest permission bit
-  else if (permissions >= 1 << 11 /* << Update this */) {
+  else if (permissions >= 1 << 13 /* << Update this */) {
     routeLogger.info('Permissions number too large (large_perm)');
     return res
       .status(400)
@@ -372,6 +376,16 @@ route.post('/issue', async (req, res) => {
     return res
       .status(400)
       .send('invalid_perm');
+  }  else if ((permissions & TokenPermission.UpdateVersionDataAnyPackage) > 0 && hasSpecificUpdateVersionDataPermission) {
+    routeLogger.info('Permissions UpdateVersionDataAnyPackage and UploadVersionDataSpecificPackages are both provided (invalid_perm)');
+    return res
+      .status(400)
+      .send('invalid_perm');
+  } else if (hasSpecificUpdateVersionDataPermission && (!body.updateVersionDataPackages || !(body.updateVersionDataPackages as string[]).length)) {
+    routeLogger.info('UploadVersionDataSpecificPackages permission provided, but no array was given (invalid_perm)');
+    return res
+      .status(400)
+      .send('invalid_perm');
   }
 
   routeLogger.debug('Permissions checks passed');
@@ -384,8 +398,9 @@ route.post('/issue', async (req, res) => {
 
     const unprocessedDescriptionUpdatePackages = body.descriptionUpdatePackages as string[] ?? [];
     const unprocessedVersionUploadPackages = body.versionUploadPackages as string[] ?? [];
+    const unprocessedUpdateVersionDataPackages = body.updateVersionDataPackages as string[] ?? [];
 
-    if (unprocessedDescriptionUpdatePackages.length > 32 || unprocessedVersionUploadPackages.length > 32) {
+    if (unprocessedDescriptionUpdatePackages.length > 32 || unprocessedVersionUploadPackages.length > 32 || unprocessedUpdateVersionDataPackages.length > 32) {
       routeLogger.info('Too many specific packages specified (long_arr)');
       return res
         .status(400)
@@ -394,8 +409,9 @@ route.post('/issue', async (req, res) => {
 
     const descriptionUpdatePackages = processPackageIdList(unprocessedDescriptionUpdatePackages, authorPackages);
     const versionUploadPackages = processPackageIdList(unprocessedVersionUploadPackages, authorPackages);
+    const updateVersionDataPackages = processPackageIdList(unprocessedUpdateVersionDataPackages, authorPackages);
 
-    if (!descriptionUpdatePackages || !versionUploadPackages) {
+    if (!descriptionUpdatePackages || !versionUploadPackages || !updateVersionDataPackages) {
       routeLogger.info('Package id lists failed to process (invalid_arr)');
       return res
         .status(400)
@@ -404,7 +420,10 @@ route.post('/issue', async (req, res) => {
 
     routeLogger.debug('Processed packages');
 
-    if (!hasSpecificDescriptionUpdatePermission && descriptionUpdatePackages.length || !hasSpecificVersionUploadPermission && versionUploadPackages.length) {
+    if (!hasSpecificDescriptionUpdatePermission && descriptionUpdatePackages.length ||
+      !hasSpecificVersionUploadPermission && versionUploadPackages.length || 
+      !hasSpecificUpdateVersionDataPermission && updateVersionDataPackages.length
+    ) {
       routeLogger.info('Specific permissions not granted, but specific array was recieved (extra_arr)');
       return res
         .status(400)
@@ -419,6 +438,7 @@ route.post('/issue', async (req, res) => {
       permissions,
       descriptionUpdatePackages,
       versionUploadPackages,
+      updateVersionDataPackages
     });
     routeLogger.debug('Token information generated');
 
@@ -428,7 +448,7 @@ route.post('/issue', async (req, res) => {
     const signed = await newToken.sign(`${expires}d`);
     routeLogger.debug('Signed new token');
 
-    await author.sendEmail('New Token', 'A new token has been issued for your X-Pkg account. If you did not request this, reset your password immediately');
+    await author.sendEmail('New Token', 'A new token has been issued for your X-Pkg account. If you did not request this, reset your password immediately.');
     logger.info('New token signed successfully');
     return res.json({
       token: signed

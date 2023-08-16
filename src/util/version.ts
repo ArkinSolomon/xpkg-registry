@@ -318,10 +318,48 @@ export default class Version {
    * @param {Version} other The other version to determine for equality.
    * @returns {boolean} True if the versions are equal.
    */
-  equals(other: Version) {
+  equals(other: Version): boolean {
     if (!other || !(other instanceof Version))
       return false;
     return this.toFloat().eq(other.toFloat());
+  }
+
+  /**
+   * Get the string representation of this value if it were the maximum value of a version range (as part of a version selection).
+   * 
+   * @returns {string} The string representnation of this version as the maximum value of a version range.
+   */
+  asMaxString(): string {
+    if (this.isPreRelease) {
+      const str = this.asMinString();
+      if (this.preReleaseType === 'a' && this.preReleaseNum === 1)
+        return str + 'a1';
+      return str;
+    }
+    else  if (this.patch === 999 && this.minor === 999)
+      return this.major.toString();
+    else if (this.patch === 999)
+      return `${this.major}.${this.minor}`;
+    return `${this.major}.${this.minor}.${this.patch}`;
+  }
+
+  /**
+   * Get the string representation of this value if it were the minimum value of a version range (as part of a version selection).
+   * 
+   * @returns {string} The string representnation of this version as the minimum value of a version range.
+   */
+  asMinString(): string {
+    let str = this.major.toString();
+    if (this.patch)
+      str += `.${this.minor}.${this.patch}`;
+    else if (this.minor)
+      str += `.${this.minor}`;
+
+    if (this.isPreRelease && !(this.preReleaseType === 'a' && this.preReleaseNum === 1)) 
+      // eslint-disable-next-line @typescript-eslint/no-non-null-assertion
+      str += this._versionParts[3]! + this.preReleaseNum!;
+
+    return str;
   }
 }
 

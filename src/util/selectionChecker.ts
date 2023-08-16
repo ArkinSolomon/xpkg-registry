@@ -215,17 +215,17 @@ export default class SelectionChecker {
 
     for (const range of this._ranges) {
       if (range.minVersion.equals(range.maxVersion))
-        rangeStrings.push(range.minVersion.toString());
+        rangeStrings.push(range.minVersion.asMinString());
       else if (range.minVersion.equals(Version.MIN_VERSION) && range.maxVersion.equals(Version.MAX_VERSION))
         return '*';
       else if (range.minVersion.equals(Version.MIN_VERSION))
-        rangeStrings = ['-' + range.maxVersion.toString()];
+        rangeStrings = ['-' + range.maxVersion.asMaxString()];
       else if (range.maxVersion.equals(Version.MAX_VERSION)) {
-        rangeStrings.push(range.minVersion.toString() + '-');
+        rangeStrings.push(range.minVersion.asMinString() + '-');
         break;
       }
       else
-        rangeStrings.push(`${range.minVersion.toString()}-${range.maxVersion.toString()}`);
+        rangeStrings.push(`${range.minVersion.asMinString()}-${range.maxVersion.asMaxString()}`);
     }
 
     return rangeStrings.join(',');

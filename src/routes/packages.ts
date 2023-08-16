@@ -31,7 +31,8 @@ import SelectionChecker from '../util/selectionChecker.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import { PackageData, PackageType } from '../database/models/packageModel.js';
 import { VersionStatus } from '../database/models/versionModel.js';
-import AuthToken, { TokenPermission } from '../auth/authToken.js';
+import AuthToken from '../auth/authToken.js';
+import InvalidListError from '../errors/invalidListError.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -56,14 +57,15 @@ route.get('/', (_, res) => {
 });
 
 route.get('/info/:packageId/:version', async (req, res) => {
-  const { packageId, version: versionString } = req.params as {
+  const { packageId: pkgId, version: versionString } = req.params as {
     packageId: unknown;
     version: unknown;
   };
 
-  if (typeof versionString !== 'string' || typeof packageId !== 'string' || !validators.validateId(packageId))
+  if (typeof versionString !== 'string' || !validators.validateId(pkgId))
     return res.sendStatus(400);
-
+  const packageId = pkgId as string;
+  
   try {
     const version = Version.fromString(versionString);
     if (!version)
@@ -115,8 +117,8 @@ route.patch('/description', async (req, res) => {
   }
 
   try {
-    const packageId = req.body.packageId.trim().toLowerCase();
-    const newDescription = req.body.newDescription.trim();
+    let packageId = req.body.packageId.trim().toLowerCase() as string;
+    const newDescription = req.body.newDescription.trim() as string;
 
     if (newDescription.length < 10) {
       routeLogger.info('New description length too short (short_desc)');
@@ -138,6 +140,16 @@ route.patch('/description', async (req, res) => {
         .send('invalid_id');
     }
     routeLogger.setBindings({ packageId });
+
+    if (packageId.includes('/')) {
+      if (!packageId.startsWith('xpkg/')) {
+        routeLogger.info('Full identifier provided, but is provided for an invalid repository (invalid_id)');
+        return res
+          .status(400)
+          .send('invalid_id');
+      }
+      packageId = packageId.replace('xpkg/', '');
+    }
 
     if (!token.canUpdatePackageDescription(packageId)) {
       routeLogger.info('Insufficient permissions to update package description');
@@ -168,7 +180,6 @@ route.post('/new', upload.none(), async (req, res) => {
   const routeLogger = logger.child({
     ip: req.ip || req.socket.remoteAddress,
     authorId: token.authorId,
-    body: req.body,
     route: '/packages/new'
   });
   routeLogger.debug('New package requested, will validate fields');
@@ -219,6 +230,11 @@ route.post('/new', upload.none(), async (req, res) => {
   }
   else if (!validators.validateId(packageId)) { 
     routeLogger.info('Invalid package id (invalid_id)');
+    return res
+      .status(400)
+      .send('invalid_id');
+  } else if (packageId.includes('/')) {
+    routeLogger.info('Full identifier provided (invalid_id)');
     return res
       .status(400)
       .send('invalid_id');
@@ -305,10 +321,18 @@ route.post('/upload', upload.single('file'), async (req, res) => {
   const routeLogger = logger.child({
     ip: req.ip || req.socket.remoteAddress,
     authorId: token.authorId,
-    body: req.body,
     route: '/packages/upload'
   });
   routeLogger.debug('New version upload request, will validate fields');
+
+  const fileDeleteCb = async () => {
+    if (file) {
+      routeLogger.debug('Forcefully deleting downloaded file on finish');
+      await rm(file.path, { force: true });
+    } else 
+      routeLogger.debug('Will not forcefully delete downloaded file');
+  };
+  res.once('finish', fileDeleteCb);
 
   let packageId: string;
   let packageVersion: string;
@@ -361,11 +385,18 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     return res
       .status(400)
       .send('invalid_id');
+  } else if (packageId.includes('/')) {
+    if (!packageId.startsWith('xpkg/')) {
+      routeLogger.info('Full identifier provided, but is provided for an invalid repository (invalid_id)');
+      return res
+        .status(400)
+        .send('invalid_id');
+    }
+    packageId = packageId.replace('xpkg/', '');
   }
 
   if (!token.canUploadPackageVersion(packageId)) {
     routeLogger.info('Insufficient permissions to upload a package version');
-    await rm(file.path, { force: true });
     return res.sendStatus(401);
   }
 
@@ -415,7 +446,30 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       .send('invalid_xp_sel');
   }
 
+  if (!Array.isArray(dependencies) || !Array.isArray(incompatibilities)) {
+    routeLogger.info('Either the dependency list or the incompatibility list is not an array (list_not_arr)');
+    return res
+      .status(400)
+      .send('list_not_arr');
+  }
+
+  if (dependencies.length > 128) {
+    routeLogger.info('Too many dependencies provided (too_many_deps)');
+    return res
+      .status(400)
+      .send('too_many_deps');
+  }
+
+  if (incompatibilities.length > 128) {
+    routeLogger.info('Too many incompatibilities provided (too_many_incs)');
+    return res
+      .status(400)
+      .send('too_many_incs');
+  }
+
   try {
+    [dependencies, incompatibilities] = validateLists(packageId, dependencies, incompatibilities);
+
     const author = await token.getAuthor();
     const authorHasPackage = await packageDatabase.doesAuthorHavePackage(author.authorId, packageId);
 
@@ -461,6 +515,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       xpSelection
     };
 
+    res.removeListener('finish', fileDeleteCb);
     const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });
     worker.on('message', v => {
       if (v === 'started') {
@@ -473,6 +528,13 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       routeLogger.error(err, 'Error while processing package');
     });
   } catch (e) {
+    if (e instanceof InvalidListError) {
+      routeLogger.info(e.message);
+      return res
+        .status(400)
+        .send(e.response);
+    }
+
     routeLogger.error(e);
     return res.sendStatus(500);
   }
@@ -485,7 +547,6 @@ route.post('/retry', upload.single('file'), async (req, res) => {
   const routeLogger = logger.child({
     ip: req.ip || req.socket.remoteAddress,
     authorId: token.authorId,
-    body: req.body,
     route: '/packages/retry'
   });
   routeLogger.debug('Processing retry request');
@@ -612,30 +673,47 @@ route.patch('/incompatibilities', async (req, res) => {
   const routeLogger = logger.child({
     ip: req.ip || req.socket.remoteAddress,
     authorId: token.authorId,
-    body: req.body,
     route: '/packages/incompatibilities'
   });
 
   if (typeof body.version !== 'string' || !Array.isArray(body.incompatibilities)) {
-    routeLogger.info('Request body contains invalid data types or is missing data');
-    return res.sendStatus(400);
+    routeLogger.info('Request body contains invalid data types or is missing data (invalid_form_data)');
+    return res
+      .status(400)
+      .send('invalid_form_data');
   }
 
   if (body.incompatibilities.length > 128) {
-    routeLogger.info('Too many incompatibilities');
-    return res.sendStatus(400);
+    routeLogger.info('Too many incompatibilities (too_many_incompatibilities)');
+    return res
+      .status(400)
+      .send('too_many_incompatibilities');
   }
 
-  const packageId = (body.packageId as string).trim().toLowerCase();
+  let packageId = (body.packageId as string).trim().toLowerCase();
   if (!validators.validateId(packageId)) {
-    routeLogger.info('Request body package identifier is invalid');
-    return res.sendStatus(400);
+    routeLogger.info('Request body package identifier is invalid (invalid_id)');
+    return res
+      .status(400)
+      .send('invalid_id');
+  } 
+
+  if (packageId.includes('/')) {
+    if (!packageId.startsWith('xpkg/')) {
+      routeLogger.info('Full identifier provided, but is provided for an invalid repository (invalid_id)');
+      return res
+        .status(400)
+        .send('invalid_id');
+    }
+    packageId = packageId.replace('xpkg/', '');
   }
 
   const version = Version.fromString(body.version);
   if (!version) {
-    routeLogger.info('Invalid version string');
-    return res.sendStatus(400);
+    routeLogger.info('Invalid version string (invalid_version)');
+    return res
+      .status(400)
+      .send('invalid_version');
   }
 
   routeLogger.setBindings({
@@ -648,56 +726,27 @@ route.patch('/incompatibilities', async (req, res) => {
     return res.sendStatus(401);
   }
 
-  let versionData;
+  let newIncompatibilities: [string, string][];
   try {
-    versionData = await packageDatabase.getVersionData(packageId, version);
+    const versionData = await packageDatabase.getVersionData(packageId, version);
+
+    [, newIncompatibilities] = validateLists('xpkg/' + packageId, versionData.dependencies, body.incompatibilities);
   } catch (e) {
     if (e instanceof NoSuchPackageError) {
       routeLogger.info('No such package found');
       return res.sendStatus(401);
     }
 
+    if (e instanceof InvalidListError) {
+      routeLogger.info(e.message);
+      return res
+        .status(400)
+        .send(e.response);
+    }
+
     routeLogger.error(e);
     return res.sendStatus(500);
   }
-
-  const dependencyIdList = versionData.dependencies.map(d => d[0]);
-  const incompatibilityMap: Map<string, string> = new Map();
-
-  for (const incompatibility of body.incompatibilities as unknown[]) {
-    if (!Array.isArray(incompatibility) || incompatibility.length !== 2) {
-      routeLogger.info('Invalid incompatiblility tuple');
-      return res.sendStatus(400);
-    }
-
-    const incompatibilityId = incompatibility[0].trim().toLowerCase();
-    const incompatibilitySelection = incompatibility[1];
-
-    if (typeof incompatibilityId !== 'string' || typeof incompatibilitySelection !== 'string') {
-      routeLogger.info('Incompatibility tuple contains invalid types');
-      return res.sendStatus(400);
-    }
-
-    if (!validators.validateId(incompatibilityId)) {
-      routeLogger.info('Invalid incompatibility identifer');
-      return res.sendStatus(400);
-    }
-    
-    if (incompatibilityId === packageId || dependencyIdList.includes(incompatibilityId)) {
-      routeLogger.info('Declared incompatibility is self or a dependency');
-      return res.sendStatus(400);
-    }
-
-    if (incompatibilityMap.has(incompatibilityId)) {
-      const oldSelection = incompatibilityMap.get(incompatibilityId);
-      incompatibilityMap.set(incompatibilityId, oldSelection + ',' + incompatibilitySelection);
-    } else
-      incompatibilityMap.set(incompatibilityId, incompatibilitySelection);
-  }
-
-  // Make sure we simplify all selections before putting them back into the database
-  const newIncompatibilities = Array.from(incompatibilityMap.entries());
-  newIncompatibilities.every(i => i[1] = new SelectionChecker(i[1]).toString());
 
   try {
     await packageDatabase.updateVersionIncompatibilities(packageId, version, newIncompatibilities);
@@ -738,6 +787,95 @@ function getPackageType(packageType: string): PackageType {
   default:
     throw new Error(`Invalid package type: "${packageType}"`);
   }
+}
+
+/**
+ * Validate and simplify the dependency and incompatibility lists. Merges duplicates, and disallows the same identifier in both lists. Also enforces list-schema, and prevents self-dependency and self-incompatibilities.
+ * 
+ * @param {string} packageId The full package identifier of the package which these lists are for.
+ * @param {[string, string][]} dependencies The client-provided dependency list, which is an array of tuples, where the first element is the full identifier of the dependency, and the second element is the selection of the dependency.
+ * @param {[string, string][]} incompatibilities The client-provided incompatibility list, which is an array of tuples, where the first element is the full identifier of the incompatibility, and the second element is the selection of the incompatibility.
+ * @returns {[[string, string][], [string, string][]]} A tuple of two lists of tuples, where the first element is a list of tuples is the new (simplified) dependency list, and the second element is also a list of tuples, which is the new (simplified) incompatibility list.
+ */
+function validateLists(packageId: string, dependencies: [string, string][], incompatibilities: [string, string][]): [[string, string][], [string, string][]] {
+  
+  const dependencyMap: Map<string, string> = new Map();
+  for (const dependency of dependencies) {
+    if (!Array.isArray(dependency) || dependency.length !== 2)
+      throw new InvalidListError('bad_dep_tuple', 'Bad dependency tuple');
+
+    let dependencyId = dependency[0].trim().toLowerCase();
+    const dependencySelection = dependency[1];
+  
+    if (typeof dependencyId !== 'string' || typeof dependencySelection !== 'string')
+      throw new InvalidListError('invalid_dep_tuple_types', 'Dependency tuple contains invalid types');
+  
+    if (!validators.validateId(dependencyId))
+      throw new InvalidListError('invalid_dep_tuple_id', 'Dependency tuple contains invalid identifier');
+      
+    if (!dependencyId.includes('/'))
+      dependencyId = 'xpkg/' + dependencyId;
+      
+    if (dependencyId === packageId)
+      throw new InvalidListError('self_dep', 'Declared dependency is self');
+  
+    if (dependencyMap.has(dependencyId)) {
+      const oldSelection = dependencyMap.get(dependencyId);
+      dependencyMap.set(dependencyId, oldSelection + ',' + dependencySelection);
+    } else
+      dependencyMap.set(dependencyId, dependencySelection);
+  }
+
+  const dependencyIdList = dependencies.map(d => d[0]);
+  const incompatibilityMap: Map<string, string> = new Map();
+
+  for (const incompatibility of incompatibilities) {
+    if (!Array.isArray(incompatibility) || incompatibility.length !== 2)
+      throw new InvalidListError('bad_inc_tuple', 'Bad incompatibility tuple');
+
+    let incompatibilityId = incompatibility[0].trim().toLowerCase();
+    const incompatibilitySelection = incompatibility[1];
+
+    if (typeof incompatibilityId !== 'string' || typeof incompatibilitySelection !== 'string')
+      throw new InvalidListError('invalid_inc_tuple_types', 'Incompatibility tuple contains invalid types');
+
+    if (!validators.validateId(incompatibilityId))
+      throw new InvalidListError('invalid_inc_tuple_id', 'Incompatibility tuple contains invalid identifier');
+    
+    if (!incompatibilityId.includes('/'))
+      incompatibilityId = 'xpkg/' + incompatibilityId;
+    
+    if (incompatibilityId === packageId || dependencyIdList.includes(incompatibilityId))
+      throw new InvalidListError('dep_or_self_inc', 'Declared incompatibility is self or a dependency');
+
+    if (incompatibilityMap.has(incompatibilityId)) {
+      const oldSelection = incompatibilityMap.get(incompatibilityId);
+      incompatibilityMap.set(incompatibilityId, oldSelection + ',' + incompatibilitySelection);
+    } else
+      incompatibilityMap.set(incompatibilityId, incompatibilitySelection);
+  }
+
+  // Make sure we simplify all selections before putting them back into the database
+  const newDependencies = Array.from(dependencyMap.entries());
+  newDependencies.forEach(d => {
+    const selection = new SelectionChecker(d[1]);
+    if (!selection.isValid)
+      throw new InvalidListError('invalid_dep_sel', 'Invalid dependency selection for ' + d[0]);
+
+    d[1] = selection.toString();
+  });
+
+  const newIncompatibilities = Array.from(incompatibilityMap.entries());
+  newIncompatibilities.forEach(i => {
+    const selection = new SelectionChecker(i[1]);
+    if (!selection.isValid)
+      throw new InvalidListError('invalid_inc_sel', 'Invalid incompatibility selection for ' + i[0]);
+
+    logger.warn(newIncompatibilities);
+    i[1] = selection.toString();
+  });
+
+  return [newDependencies, newIncompatibilities];
 }
 
 export default route;

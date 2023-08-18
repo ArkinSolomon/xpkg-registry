@@ -141,6 +141,7 @@ app.use('/auth/issue', rateLimiter('auth-issue', 3, 3));
 app.use('/packages/info', rateLimiter('packages-info', 10, 2));
 app.use('/packages/new', rateLimiter('packages-new', 3, 5));
 app.use('/packages/upload', rateLimiter('packages-upload', 3, 8));
+app.use('/packages/retry', rateLimiter('packages-retry', 3, 8));
 app.use('/packages/description', rateLimiter('packages-description', 3, 4));
 app.use('/packages/incompatibilities', rateLimiter('packages-incompatibilities', 3, 4));
 

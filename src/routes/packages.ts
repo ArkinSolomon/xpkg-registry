@@ -379,8 +379,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
     return res
       .status(400)
       .send('long_id');
-  }
-  else if (!validators.validateId(packageId)) { 
+  } else if (!validators.validateId(packageId)) { 
     routeLogger.info('Invalid package id (invalid_id)');
     return res
       .status(400)
@@ -406,7 +405,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       .status(400)
       .send('no_version');
   }
-  else if (packageVersion.length > 15) {
+  else if (packageVersion.length > 41) {
     routeLogger.info('Version too long (long_version)');
     return res
       .status(400)
@@ -582,6 +581,45 @@ route.post('/retry', upload.single('file'), async (req, res) => {
   }
 
   packageId = packageId.trim().toLowerCase();
+  if (packageId.length < 6) {
+    routeLogger.info('Package id too short (short_id)');
+    return res
+      .status(400)
+      .send('short_id');
+  }
+  else if (packageId.length > 32) {
+    routeLogger.info('Package id too long (long_id)');
+    return res
+      .status(400)
+      .send('long_id');
+  } else if (!validators.validateId(packageId)) { 
+    routeLogger.info('Invalid package id (invalid_id)');
+    return res
+      .status(400)
+      .send('invalid_id');
+  } else if (packageId.includes('/')) {
+    if (!packageId.startsWith('xpkg/')) {
+      routeLogger.info('Full identifier provided, but is provided for an invalid repository (invalid_id)');
+      return res
+        .status(400)
+        .send('invalid_id');
+    }
+    packageId = packageId.replace('xpkg/', '');
+  }
+  
+  if (!packageVersion.length) {
+    routeLogger.info('No version provided (no_version)');
+    return res
+      .status(400)
+      .send('no_version');
+  }
+  else if (packageVersion.length > 41) {
+    routeLogger.info('Version too long (long_version)');
+    return res
+      .status(400)
+      .send('long_version');
+  }
+
   const version = Version.fromString(packageVersion);
   if (!version) {
     routeLogger.info('Invalid package version (invalid_version)');
@@ -651,10 +689,10 @@ route.post('/retry', upload.single('file'), async (req, res) => {
     });
   } catch (e) {
     if (e instanceof NoSuchPackageError) {
-      routeLogger.info('Version does not exist (no_version)');
+      routeLogger.info('Version does not exist (version_not_exist)');
       return res
         .status(400)
-        .send('no_version');
+        .send('version_not_exist');
     }
 
     routeLogger.error(e, 'Error while attempting to get version data');

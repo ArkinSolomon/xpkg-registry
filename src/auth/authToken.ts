@@ -207,10 +207,16 @@ export default class AuthToken {
   /**
    * Determine if the token bearer has permission to update the data of a package version.
    * 
-   * @param {string} packageId The id of the package to check for permissions.
+   * @param {string} packageId The full or partial identifier of the package to check for permissions. Must be a valid identifier.
    * @returns {boolean} True if the bearer of this token is authorized to update the data of any version for a specific package.
    */
   public canUpdateVersionData(packageId: string): boolean {
+    if (packageId.includes('/')) {
+      if (!packageId.startsWith('xpkg/'))
+        return false; 
+      packageId = packageId.replace('xpkg/', '');
+    }
+    
     return this.hasPermission(TokenPermission.UpdateVersionDataAnyPackage) || this.hasPermission(TokenPermission.UpdateVersionDataSpecificPackages) && (this._payload.updateVersionDataPackages || []).includes(packageId);
   }
 

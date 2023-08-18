@@ -796,6 +796,127 @@ route.patch('/incompatibilities', async (req, res) => {
   }
 });
 
+route.patch('/xpselection', async (req, res) => {
+  const token = req.user as AuthToken;
+
+  const routeLogger = logger.child({
+    ip: req.ip || req.socket.remoteAddress,
+    authorId: token.authorId,
+    route: '/packages/xpselection'
+  });
+
+  let { packageId, packageVersion, xpSelection: xpSelectionStr } = req.body as {
+    packageId?: string;
+    packageVersion?: string;
+    xpSelection?: string;
+  };
+
+  if (typeof packageId !== 'string' || typeof packageVersion !== 'string' || typeof xpSelectionStr !== 'string') {
+    routeLogger.info('Missing form data or invalid types (missing_form_data)');
+    return res
+      .status(400)
+      .send('missing_form_data');
+  }
+
+  packageId = packageId.trim().toLowerCase();
+  if (packageId.length < 6) {
+    routeLogger.info('Package id too short (short_id)');
+    return res
+      .status(400)
+      .send('short_id');
+  }
+  else if (packageId.length > 32) {
+    routeLogger.info('Package id too long (long_id)');
+    return res
+      .status(400)
+      .send('long_id');
+  } else if (!validators.validateId(packageId)) { 
+    routeLogger.info('Invalid package id (invalid_id)');
+    return res
+      .status(400)
+      .send('invalid_id');
+  } else if (packageId.includes('/')) {
+    if (!packageId.startsWith('xpkg/')) {
+      routeLogger.info('Full identifier provided, but is provided for an invalid repository (invalid_id)');
+      return res
+        .status(400)
+        .send('invalid_id');
+    }
+    packageId = packageId.replace('xpkg/', '');
+  }
+  
+  packageVersion = packageVersion.trim().toLowerCase();
+  if (!packageVersion.length) {
+    routeLogger.info('No version provided (no_version)');
+    return res
+      .status(400)
+      .send('no_version');
+  }
+  else if (packageVersion.length > 41) {
+    routeLogger.info('Version too long (long_version)');
+    return res
+      .status(400)
+      .send('long_version');
+  }
+
+  const version = Version.fromString(packageVersion);
+  if (!version) {
+    routeLogger.info('Invalid package version (invalid_version)');
+    return res
+      .status(400)
+      .send('invalid_version');
+  }
+
+  routeLogger.setBindings({
+    packageId,
+    version: version.toString()
+  });
+
+  xpSelectionStr = xpSelectionStr.trim().toLowerCase();
+  if (!xpSelectionStr.length) {
+    routeLogger.info('Invalid X-Plane selection provided (no_xp_sel)');
+    return res
+      .status(400)
+      .send('no_xp_sel');
+  } else if (xpSelectionStr.length > 256) {
+    routeLogger.info('Invalid X-Plane selection provided (long_xp_sel)');
+    return res
+      .status(400)
+      .send('long_xp_sel');
+  }
+
+  const xpSelection = new SelectionChecker(xpSelectionStr);
+  if (!xpSelection.isValid) {
+    routeLogger.info('Invalid X-Plane selection provided (invalid_xp_sel)');
+    return res
+      .status(400)
+      .send('invalid_xp_sel');
+  }
+
+  routeLogger.setBindings({
+    newXpSel: xpSelection.toString()
+  });
+
+  if (!token.canUpdateVersionData(packageId)) {
+    routeLogger.info('Insufficient permissions to update incompatibilities');
+    return res.sendStatus(401);
+  }
+
+  try {
+    await packageDatabase.updateVersionXPSelection(packageId, version, xpSelection); 
+    routeLogger.info('X-Plane version updated successfully');
+    res.sendStatus(204);
+  } catch (e) {
+    if (e instanceof NoSuchPackageError) {
+      routeLogger.info('No such package found');
+      return res.sendStatus(401);
+    }
+
+    routeLogger.error(e);
+    return res.sendStatus(500);
+  }
+});
+
 /**
  * Check the type of a variable and throw an exception if they don't match.
  * 

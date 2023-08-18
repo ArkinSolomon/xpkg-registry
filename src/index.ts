@@ -122,6 +122,7 @@ const authRoutes = [
   '/packages/upload',
   '/packages/retry',
   '/packages/incompatibilities',
+  '/packages/xpselection',
   '/account/*'
 ];
 
@@ -144,6 +145,7 @@ app.use('/packages/upload', rateLimiter('packages-upload', 3, 8));
 app.use('/packages/retry', rateLimiter('packages-retry', 3, 8));
 app.use('/packages/description', rateLimiter('packages-description', 3, 4));
 app.use('/packages/incompatibilities', rateLimiter('packages-incompatibilities', 3, 4));
+app.use('/packages/xpselection', rateLimiter('packages-xpselection', 3, 4));
 
 app.use('/account', account);
 app.use('/auth', auth);

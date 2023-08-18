@@ -17,6 +17,7 @@ import Version from '../util/version.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import PackageModel, { PackageData, PackageType } from './models/packageModel.js';
 import VersionModel, { VersionData, VersionStatus } from './models/versionModel.js';
+import SelectionChecker from '../util/selectionChecker.js';
 
 /**
    * Add a new package to the database. Does not check for existence.
@@ -234,7 +235,7 @@ export async function getVersionData(packageId: string, version?: Version): Prom
  * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
  */
 export async function updateVersionIncompatibilities(packageId: string, version: Version, incompatibilities: [string, string][]): Promise<void> {
-  await VersionModel.updateOne({
+  const result = await VersionModel.updateOne({
     packageId,
     version: version.toString()
   }, {
@@ -243,6 +244,34 @@ export async function updateVersionIncompatibilities(packageId: string, version:
     }
   })
     .exec();
+  
+  if (!result.modifiedCount)
+    throw new NoSuchPackageError(packageId, version);
+}
+
+/**
+ * Update the X-Plane selection of a package version by overwriting the old one.
+ * 
+ * @async
+ * @param {string} packageId The identifier of the package to update the X-Plane selection of.
+ * @param {Version} version The version of the package to update the X-Plane selection of.
+ * @param {SelectionChecker} xpSelection The new X-Plane selection of the package.
+ * @returns {Promise<void>} A promise which resolves if the X-Plane selection is updated successfully.
+ * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
+ */
+export async function updateVersionXPSelection(packageId: string, version: Version, xpSelection: SelectionChecker): Promise<void> {
+  const result = await VersionModel.updateOne({
+    packageId,
+    version: version.toString()
+  }, {
+    $set: {
+      xpSelection: xpSelection.toString()
+    }
+  })
+    .exec();
+  
+  if (!result.modifiedCount)
+    throw new NoSuchPackageError(packageId, version);
 }
 
 /**

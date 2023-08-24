@@ -29,13 +29,13 @@ type VersionRange = {
   maxVersion: Version;
 };
 
-import {Big} from 'big.js';
+import { Big } from 'big.js';
 import Version from './version.js';
 
 /**
- * This class creates a checker to check if a version matches a selection.
+ * This class version selection from a string, and can use it with other version selections, or versions.
  */
-export default class SelectionChecker {
+export default class VersionSelection {
 
   private _isValid = true;
   private _ranges: VersionRange[] = [];
@@ -59,7 +59,7 @@ export default class SelectionChecker {
   }
 
   /**
-   * Create a new selection checker from a string.
+   * Create a new version selection from a string.
    * 
    * @param {string} selectionStr The selection string, comma separated.
    */

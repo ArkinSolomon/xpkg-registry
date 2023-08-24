@@ -14,12 +14,14 @@
  */
 
 import { Router } from 'express';
-import { validateName } from '../util/validators.js';
 import * as packageDatabase from '../database/packageDatabase.js';
 import logger from '../logger.js';
 import { PackageData } from '../database/models/packageModel.js';
 import { VersionData } from '../database/models/versionModel.js';
 import AuthToken, { TokenPermission } from '../auth/authToken.js';
+import * as validators from '../util/validators.js';
+import { body, matchedData, validationResult } from 'express-validator';
+import * as authorDatabase from '../database/authorDatabase.js';
 
 const route = Router();
 
@@ -50,59 +52,80 @@ route.get('/data', async (req, res) => {
   });
 });
 
-route.patch('/changename', async (req, res) => {
-  const token = req.user as AuthToken;
-  let { newName } = req.body as { newName?: unknown; };
+route.patch('/changename',
+  validators.isValidName(body('newName')),
+  async (req, res) => {
+    const token = req.user as AuthToken;
 
-  const routeLogger = logger.child({
-    route: '/account/changename',
-    id: req.id,
-    ip: req.ip || req.socket.remoteAddress,
-    authorId: token.authorId
-  });
+    const routeLogger = logger.child({
+      route: '/account/changename',
+      id: req.id,
+      ip: req.ip || req.socket.remoteAddress,
+      authorId: token.authorId
+    });
+    routeLogger.debug('Author attempting to change thier name');
 
-  if (typeof newName !== 'string') {
-    routeLogger.info('New name not provided, or invalid type');
-    return res.sendStatus(400);
-  }
+    const result = validationResult(req);
+    if (!result.isEmpty()) {
+      const message = result.array()[0].msg;
+      routeLogger.info(`Validation failed with message: ${message}`);
+      return res
+        .status(400)
+        .send(message);
+    }
 
-  try {
-    newName = newName.trim();
+    const { newName } = matchedData(req) as {
+      newName: string;
+    };
+
     routeLogger.setBindings({
       newName
     });
 
-    const author = await token.getAuthor();
+    try {
+      const author = await token.getAuthor();
 
-    const checkName = (newName as string).toLowerCase();
-    if (author.authorName.toLowerCase() === checkName || !validateName(checkName)) {
-      routeLogger.debug('Author sent invalid name change request');
-      return res.sendStatus(400);
-    }
+      const checkName = (newName as string).toLowerCase();
+      if (author.authorName.toLowerCase() === checkName) {
+        routeLogger.debug('Author sent invalid name change request');
+        return res
+          .status(400)
+          .send('same_name');
+      }
 
-    if (!token.hasPermission(TokenPermission.Admin)) {
-      routeLogger.info('Insufficient permissions to update author data');
-      return res.sendStatus(401);
-    }
+      if (!token.hasPermission(TokenPermission.Admin)) {
+        routeLogger.info('Insufficient permissions to update author data');
+        return res.sendStatus(401);
+      }
 
-    const lastChangeDate = author.lastChange || new Date(0);
+      const lastChangeDate = author.lastChange || new Date(0);
 
-    // Allow name change if it's been more than 30 days (see https://bobbyhadz.com/blog/javascript-check-if-date-within-30-days)
-    const daysSinceChange = Math.abs(lastChangeDate.getTime() - Date.now()) / 8.64e7;
-    if (daysSinceChange < 30) {
-      routeLogger.info('Author attempted to change name within 30 days of last name change');
-      return res.sendStatus(403);
-    }
+      // Allow name change if it's been more than 30 days (see https://bobbyhadz.com/blog/javascript-check-if-date-within-30-days)
+      const daysSinceChange = Math.abs(lastChangeDate.getTime() - Date.now()) / 8.64e7;
+      if (daysSinceChange < 30) {
+        routeLogger.info('Author attempted to change name within 30 days of last name change');
+        return res
+          .status(400)
+          .send('too_soon');
+      }
+
+      const nameExists = await authorDatabase.nameExists(newName);
+      if (nameExists) {
+        routeLogger.info('Name already taken');
+        return res
+          .status(400)
+          .send('name_exists');
+      }
     
-    await author.changeName(newName as string);
-    routeLogger.debug('Author changed name successfully, notifying author');
-    author.sendEmail('X-Pkg Name changed', `Your name on X-Pkg has been changed successfully. Your new name is now "${newName}". This name will appear to all users on X-Pkg.`);
-    res.sendStatus(204);
-  } catch (e) {
-    logger.error(e);
-    return res.sendStatus(500);
-  }
-});
+      await author.changeName(newName as string);
+      routeLogger.debug('Author changed name successfully, notifying author');
+      author.sendEmail('X-Pkg Name changed', `Your name on X-Pkg has been changed successfully. Your new name is now "${newName}". This name will appear to all users on X-Pkg.`);
+      res.sendStatus(204);
+    } catch (e) {
+      logger.error(e);
+      return res.sendStatus(500);
+    }
+  });
 
 route.get('/packages', async (req, res) => {
   const token = req.user as AuthToken;

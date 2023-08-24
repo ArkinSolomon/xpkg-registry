@@ -16,8 +16,12 @@ import { ValidationChain } from 'express-validator';
 import fs from 'fs';
 import path from 'path';
 import { TokenPermission } from '../auth/authToken.js';
+import Version from './version.js';
+import { PackageType } from '../database/models/packageModel.js';
+import logger from '../logger.js';
+import VersionSelection from './versionSelection.js';
 
-const words = fs
+const profaneWords = fs
   .readFileSync(path.resolve('.', 'resources', 'profanity_list.txt'), 'utf-8')
   .split(/\n/g);
 
@@ -31,8 +35,10 @@ export function isProfane(text: string): boolean {
   const parts = text.split(/[\s._]/);
   
   for (const part of parts) {
-    if (words.includes(part.toLowerCase()))
+    if (profaneWords.includes(part.toLowerCase())) {
+      logger.debug({ part }, 'Profane word detected!');
       return true;
+    }
   }
 
   return false;
@@ -104,15 +110,15 @@ export function validateId(packageId: unknown): boolean {
  * @param {ValidationChain} chain The source of the value to validate.
  * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
  */
-export function emailValidator(chain: ValidationChain): ValidationChain {
+export function isValidEmail(chain: ValidationChain): ValidationChain {
   return chain
+    .trim()
     .notEmpty().withMessage('invalid_or_empty_str')
     .isEmail().withMessage('bad_email')
     .isLength({
       min: 5,
       max: 64
     }).withMessage('bad_len')
-    .trim()
     .toLowerCase();
 }
 
@@ -122,8 +128,9 @@ export function emailValidator(chain: ValidationChain): ValidationChain {
  * @param {ValidationChain} chain The source of the value to validate.
  * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
  */
-export function nameValidator(chain: ValidationChain): ValidationChain {
+export function isValidName(chain: ValidationChain): ValidationChain {
   return chain
+    .trim()
     .notEmpty().withMessage('invalid_or_empty_str')
     .custom(value => !isProfane(value)).withMessage('profane')
     .custom(value => /^[a-z][a-z0-9\x20-.]+[a-z0-9]$/i.test(value)).withMessage('invalid_name');
@@ -135,7 +142,7 @@ export function nameValidator(chain: ValidationChain): ValidationChain {
  * @param {ValidationChain} chain The source of the value to validate.
  * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
  */
-export function passwordValidator(chain: ValidationChain): ValidationChain {
+export function isValidPassword(chain: ValidationChain): ValidationChain {
   return chain
     .notEmpty().withMessage('invalid_or_empty_str')
     .isLength({
@@ -151,7 +158,7 @@ export function passwordValidator(chain: ValidationChain): ValidationChain {
  * @param {ValidationChain} chain The source of the value to validate.
  * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
  */
-export function permissionsNumberValidator(chain: ValidationChain): ValidationChain {
+export function isValidPermissions(chain: ValidationChain): ValidationChain {
   return chain
     .isInt({
       min: 2,
@@ -170,7 +177,114 @@ export function permissionsNumberValidator(chain: ValidationChain): ValidationCh
  */
 export function asPartialXpkgPackageId(chain: ValidationChain): ValidationChain {
   return chain
+    .trim()
     .notEmpty().withMessage('invalid_or_empty_str')
-    .custom(value => validateId(value) && value.startsWith('xpkg/')).withMessage('wrong_repo')
-    .customSanitizer(value => value.replace('xpkg/', ''));
+    .custom(value => validateId(value) && !value.startsWith('xpkg/')).withMessage('wrong_repo')
+    .customSanitizer(value => value.replace('xpkg/', ''))
+    .trim();
+}
+
+/**
+ * Ensure that the provided value is a partial package identifier.
+ * 
+ * @param {ValidationChain} chain The source of the identifier to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function isPartialPackageId(chain: ValidationChain): ValidationChain {
+  return chain
+    .trim()
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .custom(value => validateId(value) && !value.includes('/')).withMessage('full_id');
+}
+
+/**
+ * Ensure that a description is valid. Also trim it. 
+ * 
+ * @param {ValidationChain} chain The source of the identifier to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function isValidDescription(chain: ValidationChain): ValidationChain {
+  return chain
+    .trim()
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .isLength({
+      min: 10,
+      max: 8192
+    }).withMessage('bad_desc_len')
+    .custom(value => !isProfane(value)).withMessage('profane_desc');
+}
+
+/**
+ * Transform a package string into a {@link PackageType}.
+ * 
+ * @param {ValidationChain} chain The source of the identifier to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function asPackageType(chain: ValidationChain): ValidationChain {
+  return chain
+    .trim()
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .custom(value => {
+      const pkgType = (() => {
+        switch (value) {
+        case 'aircraft': return PackageType.Aircraft;
+        case 'scenery': return PackageType.Scenery;
+        case 'plugin': return PackageType.Plugin;
+        case 'livery': return PackageType.Livery;
+        case 'executable': return PackageType.Livery;
+        case 'other': return PackageType.Other;
+        default:
+          logger.debug({ value }, 'Invalid package type given');
+          return null;
+        }
+      })();
+      if (!pkgType)
+        return false;
+      (chain as ValidationChain & { __xpkgPkgTypeCache: PackageType | null }).__xpkgPkgTypeCache = pkgType;
+      return true;
+    })
+    .bail().withMessage('invalid_pkg_type')
+    .customSanitizer(() => (chain as ValidationChain & { __xpkgPkgTypeCache: PackageType }).__xpkgPkgTypeCache);
+}
+
+/**
+ * Transform a version string into a {@link Version} object. Invalidates if the provided string is not a valid version string. 
+ * 
+ * @param {ValidationChain} chain The source of the identifier to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function asVersion(chain: ValidationChain): ValidationChain {
+  return chain
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .custom(value => {
+      const version = Version.fromString(value);
+      if (!version)
+        return false;
+      (chain as ValidationChain & { __xpkgVersionCache: Version; }).__xpkgVersionCache = version;
+      return true;
+    })
+    .bail().withMessage('invalid_version')
+    .customSanitizer(() => {
+      return (chain as ValidationChain & { __xpkgVersionCache: Version; }).__xpkgVersionCache;
+    });
+}
+
+/**
+ * Transform a version selection string into a {@link VersionSelection}.
+ * 
+ * @param {ValidationChain} chain The source of the identifier to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function asVersionSelection(chain: ValidationChain): ValidationChain {
+  return chain
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .custom(value => {
+      const selection = new VersionSelection(value);
+      if (!selection.isValid)
+        return false;
+      (chain as ValidationChain & { __xpkgSelectionCache: VersionSelection }).__xpkgSelectionCache = selection;
+      return true;
+    })
+    .bail().withMessage('invalid_selection')
+    .customSanitizer(() => (chain as ValidationChain & { __xpkgSelectionCache: VersionSelection }).__xpkgSelectionCache);
 }

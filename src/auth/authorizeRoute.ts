@@ -39,7 +39,7 @@ export default async function (req: Request, res: Response, next: NextFunction) 
 
     next();
   } catch (_) {
-    logger.info(`Unauthorized login attempt from ${req.ip || req.socket.remoteAddress}`);
+    logger.info(`Unauthorized authorization attempt from ${req.ip || req.socket.remoteAddress}`);
     return res.sendStatus(401);
   }
 }

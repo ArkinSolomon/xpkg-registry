@@ -42,9 +42,9 @@ import { body, check, matchedData, param, validationResult } from 'express-valid
 const route = Router();
 
 route.post('/create',
-  validators.emailValidator(body('email')),
-  validators.nameValidator(body('name')),
-  validators.passwordValidator(body('password')),
+  validators.isValidEmail(body('email')),
+  validators.isValidName(body('name')),
+  validators.isValidPassword(body('password')),
   body('validation').notEmpty(),
   async (req, res) => {
     const routeLogger = logger.child({
@@ -56,17 +56,17 @@ route.post('/create',
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
-      logger.info(`Request failed with message: ${message}`);
+      routeLogger.info(`Validation failed with message: ${message}`);
       return res
         .status(400)
         .send(message);
     }
 
     const { email, password, name, validation } = matchedData(req) as {
-      email: string,
-      password: string,
-      name: string,
-      validation: string
+      email: string;
+      password: string;
+      name: string;
+      validation: string;
     };
 
     try {
@@ -118,8 +118,8 @@ route.post('/create',
   });
 
 route.post('/login',
-  validators.emailValidator(body('email')),
-  validators.passwordValidator(body('password')),
+  validators.isValidEmail(body('email')),
+  validators.isValidPassword(body('password')),
   body('validation').notEmpty(),
   async (req, res) => {
     const routeLogger = logger.child({
@@ -234,12 +234,12 @@ route.post('/issue',
     min: 1,
     max: 365
   }),
-  validators.nameValidator(body('name')).isLength({
+  validators.isValidName(body('name')).isLength({
     min: 3, 
     max: 32
   }),
   body('description').optional().isString().isAscii().default('').trim(),
-  validators.permissionsNumberValidator(body('permissions')),
+  validators.isValidPermissions(body('permissions')),
 
   body('versionUploadPackages').default([]).isArray({
     max: 32

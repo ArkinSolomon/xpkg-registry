@@ -17,7 +17,7 @@ import Version from '../util/version.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import PackageModel, { PackageData, PackageType } from './models/packageModel.js';
 import VersionModel, { VersionData, VersionStatus } from './models/versionModel.js';
-import SelectionChecker from '../util/selectionChecker.js';
+import VersionSelection from '../util/versionSelection.js';
 
 /**
    * Add a new package to the database. Does not check for existence.
@@ -56,14 +56,14 @@ export async function addPackage(packageId: string, packageName: string, authorI
  * @param {string} [accessConfig.privateKey] Access key for the version, must be provided if package is private and stored.
  * @param {[string][string][]} [dependencies] The dependencies of the version.
  * @param {[string][string][]} [incompatibilities] The incompatibilities of the version.
- * @param {string} xpSelection The X-Plane selection.
+ * @param {VersionSelection} xpSelection The X-Plane selection.
  * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
  */
 export async function addPackageVersion(packageId: string, version: Version, accessConfig: {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
-  }, dependencies: [string, string][], incompatibilities: [string, string][], xpSelection: string): Promise<void> {
+  }, dependencies: [string, string][], incompatibilities: [string, string][], xpSelection: VersionSelection): Promise<void> {
   const newVersion = new VersionModel({
     packageId,
     version,
@@ -255,11 +255,11 @@ export async function updateVersionIncompatibilities(packageId: string, version:
  * @async
  * @param {string} packageId The identifier of the package to update the X-Plane selection of.
  * @param {Version} version The version of the package to update the X-Plane selection of.
- * @param {SelectionChecker} xpSelection The new X-Plane selection of the package.
+ * @param {VersionSelection} xpSelection The new X-Plane selection of the package.
  * @returns {Promise<void>} A promise which resolves if the X-Plane selection is updated successfully.
  * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
  */
-export async function updateVersionXPSelection(packageId: string, version: Version, xpSelection: SelectionChecker): Promise<void> {
+export async function updateVersionXPSelection(packageId: string, version: Version, xpSelection: VersionSelection): Promise<void> {
   const result = await VersionModel.updateOne({
     packageId,
     version: version.toString()

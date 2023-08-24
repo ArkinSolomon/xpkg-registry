@@ -13,7 +13,7 @@
  * either express or implied limitations under the License.
  */
 
-import {Big} from 'big.js';
+import { Big } from 'big.js';
 
 /**
  * A version decomposed into sub-items. The way a version is stored internally.

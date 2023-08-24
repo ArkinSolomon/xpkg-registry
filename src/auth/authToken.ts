@@ -14,7 +14,7 @@
  */
 
 /**
- * Permissions that a token has. Remember to update the token issuing route's maximum permission number when updating this to the maximum bitshift + 1.
+ * Permissions that a token has. Remember to update the permission number validator when updating this to the maximum bitshift + 1.
  * 
  * @enum
  * @type {number}

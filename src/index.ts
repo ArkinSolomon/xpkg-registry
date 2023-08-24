@@ -61,7 +61,8 @@ import { pinoHttp } from 'pino-http';
 import logger from './logger.js';
 import { unzippedFilesLocation, xpkgFilesLocation } from './routes/packages.js';
 
-logger.info('X-Pkg registry server starting');
+if (process.env.NODE_ENV === 'test')
+  logger.warn('Registry starting in test mode');
 
 process.on('unhandledRejection', err => {
   logger.error(err, 'Unhandled rejection');

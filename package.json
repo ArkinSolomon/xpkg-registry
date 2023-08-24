@@ -34,7 +34,8 @@
     "@typescript-eslint/parser": "^5.40.0",
     "eslint": "^8.25.0",
     "ts-jsdoc": "^3.2.2",
-    "typescript": "^4.8.4"
+    "ts-node": "^10.9.1",
+    "typescript": "^4.9.5"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.202.0",
@@ -46,9 +47,10 @@
     "big.js": "^6.2.1",
     "body-parser": "^1.20.1",
     "cors": "^2.8.5",
-    "dotenv": "^16.0.3",
+    "dotenv": "^16.3.1",
     "express": "^4.18.2",
     "express-fileupload": "^1.4.0",
+    "express-validator": "^7.0.1",
     "hasha": "^5.2.2",
     "jsonwebtoken": "^9.0.0",
     "mkdirp": "^1.0.4",
@@ -58,7 +60,7 @@
     "nodemailer": "^6.9.1",
     "passport-jwt": "^4.0.0",
     "pino": "^8.14.1",
-    "pino-http": "^8.3.3",
+    "pino-http": "^8.4.0",
     "rate-limiter-flexible": "^2.4.1",
     "socket.io-client": "^4.6.2",
     "stat-mode": "^1.0.0",

@@ -405,7 +405,7 @@ route.post('/upload', upload.single('file'), async (req, res) => {
       .status(400)
       .send('no_version');
   }
-  else if (packageVersion.length > 41) {
+  else if (packageVersion.length > 15) {
     routeLogger.info('Version too long (long_version)');
     return res
       .status(400)
@@ -613,7 +613,7 @@ route.post('/retry', upload.single('file'), async (req, res) => {
       .status(400)
       .send('no_version');
   }
-  else if (packageVersion.length > 41) {
+  else if (packageVersion.length > 15) {
     routeLogger.info('Version too long (long_version)');
     return res
       .status(400)
@@ -825,7 +825,7 @@ route.patch('/xpselection', async (req, res) => {
       .status(400)
       .send('short_id');
   }
-  else if (packageId.length > 32) {
+  else if (packageId.length > 41) {
     routeLogger.info('Package id too long (long_id)');
     return res
       .status(400)
@@ -852,7 +852,7 @@ route.patch('/xpselection', async (req, res) => {
       .status(400)
       .send('no_version');
   }
-  else if (packageVersion.length > 41) {
+  else if (packageVersion.length > 15) {
     routeLogger.info('Version too long (long_version)');
     return res
       .status(400)

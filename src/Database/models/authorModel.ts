@@ -124,13 +124,10 @@ const tokenInformationSchema = new Schema<TokenInformation>({
   tokenSession: {
     type: String,
     required: true,
-    unique: true
   },
   tokenName: {
     type: String,
     required: true,
-    lowercase: true,
-    unique: true,
     minlength: 3,
     maxlength: 32
   },
@@ -246,12 +243,16 @@ const authorSchema = new Schema<DatabaseAuthor>({
     registerNewToken: async function (token: AuthToken, tokenExpiry: number, tokenName: string, description?: string): Promise<void> {
       const tokenSession = token.tokenSession;
       if (!tokenSession)
-        throw new Error('Can not register a token for an author without a token session');
+        throw new Error('Can not register a token without a token session');
 
       let { versionUploadPackages, descriptionUpdatePackages, updateVersionDataPackages } = token;
       versionUploadPackages ??= [];
       descriptionUpdatePackages ??= [];
       updateVersionDataPackages ??= [];
+
+      if (this.tokens.findIndex(t => t.tokenName.toLowerCase() === tokenName.toLowerCase() || t.tokenSession === tokenSession) > 0) {
+        throw new Error('Token name or session already exists');
+      }
 
       await AuthorModel.updateOne({
         authorId: this.authorId,

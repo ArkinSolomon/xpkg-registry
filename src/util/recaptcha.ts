@@ -16,7 +16,8 @@
 import axios from 'axios';
 import logger from '../logger.js';
 
-if (process.env.RECAPTCHA_DISABLE)
+const disableCaptcha = process.env.RECAPTCHA_DISABLE || process.env.NODE_ENV === 'test';
+if (disableCaptcha)
   logger.warn('reCAPTCHA disabled');
 
 /**
@@ -27,7 +28,7 @@ if (process.env.RECAPTCHA_DISABLE)
  * @returns {Promise<boolean>} A promise which resolves to true if the action should be allowed, or false if the action should not be allowed, or if there is an error.
  */
 export default async function verifyRecaptcha(token: string, ip: string): Promise<boolean> {
-  if (process.env.RECAPTCHA_DISABLE)
+  if (disableCaptcha)
     return true;
   try {
     const params = new URLSearchParams({

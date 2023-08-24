@@ -12,8 +12,10 @@
  * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
  * either express or implied limitations under the License.
  */
+import { ValidationChain } from 'express-validator';
 import fs from 'fs';
 import path from 'path';
+import { TokenPermission } from '../auth/authToken.js';
 
 const words = fs
   .readFileSync(path.resolve('.', 'resources', 'profanity_list.txt'), 'utf-8')
@@ -94,4 +96,81 @@ export function validateId(packageId: unknown): boolean {
     return false;
 
   return /^([a-z][a-z0-9_-]*\.)*[a-z][a-z0-9_-]*$/i.test(pId);
+}
+
+/**
+ * Ensure that a provided value is an email.
+ * 
+ * @param {ValidationChain} chain The source of the value to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function emailValidator(chain: ValidationChain): ValidationChain {
+  return chain
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .isEmail().withMessage('bad_email')
+    .isLength({
+      min: 5,
+      max: 64
+    }).withMessage('bad_len')
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Ensure that a provided value can be a name.
+ * 
+ * @param {ValidationChain} chain The source of the value to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function nameValidator(chain: ValidationChain): ValidationChain {
+  return chain
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .custom(value => !isProfane(value)).withMessage('profane')
+    .custom(value => /^[a-z][a-z0-9\x20-.]+[a-z0-9]$/i.test(value)).withMessage('invalid_name');
+}
+
+/**
+ * Ensure that a provided value is a valid password.
+ * 
+ * @param {ValidationChain} chain The source of the value to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function passwordValidator(chain: ValidationChain): ValidationChain {
+  return chain
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .isLength({
+      min: 8, 
+      max: 64
+    }).withMessage('bad_len')
+    .custom(value => value.toLowerCase() !== 'password').withMessage('is_password');
+}
+
+/**
+ * Ensure that a provided value is a valid permissions number without administrator permissions.
+ * 
+ * @param {ValidationChain} chain The source of the value to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function permissionsNumberValidator(chain: ValidationChain): ValidationChain {
+  return chain
+    .isInt({
+      min: 2,
+      
+      // If there is a bit set greater than the highest permission bit
+      max: 1 << 13 /* << Update this */ - 1
+    }).withMessage('invalid_num')
+    .custom(value => (value & TokenPermission.Admin) > 0).withMessage('is_admin');
+}
+
+/**
+ * Sanitize a full package identifier to ensure that it is valid and part of the X-Pkg repository, or validate a partial identifier.
+ * 
+ * @param {ValidationChain} chain The source of the identifier to validate.
+ * @returns {ValidationChain} The validation chain provided to an Express route, or used for further modification.
+ */
+export function asPartialXpkgPackageId(chain: ValidationChain): ValidationChain {
+  return chain
+    .notEmpty().withMessage('invalid_or_empty_str')
+    .custom(value => validateId(value) && value.startsWith('xpkg/')).withMessage('wrong_repo')
+    .customSanitizer(value => value.replace('xpkg/', ''));
 }

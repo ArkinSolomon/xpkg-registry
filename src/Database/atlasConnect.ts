@@ -17,7 +17,7 @@ import logger from '../logger.js';
 
 try {
   await mongoose.connect(`mongodb+srv://${process.env.MONGODB_IP}/?authSource=%24external&authMechanism=MONGODB-X509` as string, {
-    sslValidate: true,
+    tlsAllowInvalidCertificates: false,
     tlsCertificateKeyFile: process.env.MONGODB_KEY_PATH,
     authMechanism: 'MONGODB-X509',
     authSource: '$external'

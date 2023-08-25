@@ -45,40 +45,6 @@ export function isProfane(text: string): boolean {
 }
 
 /**
- * Check if a password is valid.
- * 
- * @param {string} password The password to validate.
- * @returns {boolean} True if the password is valid.
- */
-export function validatePassword(password: string): boolean {
-  return (password && typeof password === 'string' && password.length >= 8 && password.length <= 64 && password.toLowerCase() !== 'password') as boolean;
-}
-
-/**
- * Check if an email is valid.
- * 
- * @param {string} email The email to validate.
- * @returns {boolean} True if the email is valid.
- */
-export function validateEmail(email: string): boolean {
-  return ((email && typeof email === 'string') && /^\S+@\S+\.\S+$/.test(
-    email
-      .toLowerCase()
-      .trim()
-  ) && (email.length >= 5 && email.length <= 64)) as boolean;
-}
-
-/**
- * Check if a name is valid.
- * 
- * @param {string} name The name to validate.
- * @returns {boolean} True if the name is valid.
- */
-export function validateName(name: string): boolean {
-  return (name && typeof name === 'string' && name.length >= 3 && name.length <= 32 && !isProfane(name)) as boolean;
-}
-
-/**
  * Check if a package identifier is valid.
  * 
  * @param {unknown} packageId The identifier to validate.
@@ -113,12 +79,12 @@ export function validateId(packageId: unknown): boolean {
 export function isValidEmail(chain: ValidationChain): ValidationChain {
   return chain
     .trim()
-    .notEmpty().withMessage('invalid_or_empty_str')
-    .isEmail().withMessage('bad_email')
+    .notEmpty().bail().withMessage('invalid_or_empty_str')
+    .isEmail().bail().withMessage('bad_email')
     .isLength({
       min: 5,
       max: 64
-    }).withMessage('bad_len')
+    }).bail().withMessage('bad_len')
     .toLowerCase();
 }
 
@@ -131,8 +97,8 @@ export function isValidEmail(chain: ValidationChain): ValidationChain {
 export function isValidName(chain: ValidationChain): ValidationChain {
   return chain
     .trim()
-    .notEmpty().withMessage('invalid_or_empty_str')
-    .custom(value => !isProfane(value)).withMessage('profane')
+    .notEmpty().bail().withMessage('invalid_or_empty_str')
+    .custom(value => !isProfane(value)).bail().withMessage('profane')
     .custom(value => /^[a-z][a-z0-9\x20-.]+[a-z0-9]$/i.test(value)).withMessage('invalid_name');
 }
 
@@ -148,7 +114,7 @@ export function isValidPassword(chain: ValidationChain): ValidationChain {
     .isLength({
       min: 8, 
       max: 64
-    }).withMessage('bad_len')
+    }).bail().withMessage('bad_len')
     .custom(value => value.toLowerCase() !== 'password').withMessage('is_password');
 }
 
@@ -165,7 +131,7 @@ export function isValidPermissions(chain: ValidationChain): ValidationChain {
       
       // If there is a bit set greater than the highest permission bit
       max: 1 << 13 /* << Update this */ - 1
-    }).withMessage('invalid_num')
+    }).bail().withMessage('invalid_num')
     .custom(value => (value & TokenPermission.Admin) > 0).withMessage('is_admin');
 }
 
@@ -178,10 +144,9 @@ export function isValidPermissions(chain: ValidationChain): ValidationChain {
 export function asPartialXpkgPackageId(chain: ValidationChain): ValidationChain {
   return chain
     .trim()
-    .notEmpty().withMessage('invalid_or_empty_str')
-    .custom(value => validateId(value) && !value.startsWith('xpkg/')).withMessage('wrong_repo')
-    .customSanitizer(value => value.replace('xpkg/', ''))
-    .trim();
+    .notEmpty().bail().withMessage('invalid_or_empty_str')
+    .custom(value => validateId(value) && !value.startsWith('xpkg/')).bail().withMessage('wrong_repo')
+    .customSanitizer(value => value.replace('xpkg/', ''));
 }
 
 /**
@@ -193,7 +158,7 @@ export function asPartialXpkgPackageId(chain: ValidationChain): ValidationChain 
 export function isPartialPackageId(chain: ValidationChain): ValidationChain {
   return chain
     .trim()
-    .notEmpty().withMessage('invalid_or_empty_str')
+    .notEmpty().bail().withMessage('invalid_or_empty_str')
     .custom(value => validateId(value) && !value.includes('/')).withMessage('full_id');
 }
 
@@ -206,7 +171,7 @@ export function isPartialPackageId(chain: ValidationChain): ValidationChain {
 export function isValidDescription(chain: ValidationChain): ValidationChain {
   return chain
     .trim()
-    .notEmpty().withMessage('invalid_or_empty_str')
+    .notEmpty().bail().withMessage('invalid_or_empty_str')
     .isLength({
       min: 10,
       max: 8192
@@ -223,7 +188,7 @@ export function isValidDescription(chain: ValidationChain): ValidationChain {
 export function asPackageType(chain: ValidationChain): ValidationChain {
   return chain
     .trim()
-    .notEmpty().withMessage('invalid_or_empty_str')
+    .notEmpty().bail().withMessage('invalid_or_empty_str')
     .custom(value => {
       const pkgType = (() => {
         switch (value) {
@@ -255,7 +220,7 @@ export function asPackageType(chain: ValidationChain): ValidationChain {
  */
 export function asVersion(chain: ValidationChain): ValidationChain {
   return chain
-    .notEmpty().withMessage('invalid_or_empty_str')
+    .notEmpty().bail().withMessage('invalid_or_empty_str')
     .custom(value => {
       const version = Version.fromString(value);
       if (!version)
@@ -277,7 +242,7 @@ export function asVersion(chain: ValidationChain): ValidationChain {
  */
 export function asVersionSelection(chain: ValidationChain): ValidationChain {
   return chain
-    .notEmpty().withMessage('invalid_or_empty_str')
+    .notEmpty().bail().withMessage('invalid_or_empty_str')
     .custom(value => {
       const selection = new VersionSelection(value);
       if (!selection.isValid)

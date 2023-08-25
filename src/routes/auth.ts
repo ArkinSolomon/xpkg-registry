@@ -48,7 +48,7 @@ route.post('/create',
   body('validation').notEmpty(),
   async (req, res) => {
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       route: '/auth/create',
       requestId: req.id
     });
@@ -70,7 +70,7 @@ route.post('/create',
     };
 
     try {
-      if (!(await verifyRecaptcha(validation, req.ip || req.socket.remoteAddress || 'unknown'))) {
+      if (!(await verifyRecaptcha(validation, req.ip || 'unknown'))) {
         routeLogger.info('ReCAPTCHA validation failed');
         return res.sendStatus(418);
       } 
@@ -123,7 +123,7 @@ route.post('/login',
   body('validation').notEmpty(),
   async (req, res) => {
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       route: '/auth/login',
       requestId: req.id,
     });
@@ -140,7 +140,7 @@ route.post('/login',
     const { email, password, validation } = matchedData(req);
 
     try {
-      if (!(await verifyRecaptcha(validation, req.ip || req.socket.remoteAddress || 'unknown'))) {
+      if (!(await verifyRecaptcha(validation, req.ip || 'unknown'))) {
         routeLogger.info('ReCAPTCHA validation failed');
         return res.sendStatus(418);
       }
@@ -167,7 +167,7 @@ route.post('/login',
 
       res.json({ token });
 
-      await author.sendEmail('New Login', `There was a new login to your X-Pkg account from ${req.ip || req.socket.remoteAddress}`);
+      await author.sendEmail('New Login', `There was a new login to your X-Pkg account from ${req.ip}`);
     } catch (e) {
       routeLogger.error(e);
       res.sendStatus(500);
@@ -188,12 +188,12 @@ route.post('/verify/:verificationToken',
     const { verificationToken, validation } = matchedData(req);
 
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       route: '/auth/verify/:verificationToken',
       id: req.id
     });
 
-    const isTokenValid = await verifyRecaptcha(validation, req.ip || req.socket.remoteAddress as string);
+    const isTokenValid = await verifyRecaptcha(validation, req.ip as string);
     if (!isTokenValid) {
       routeLogger.info('Could not validate reCAPTCHA token');
       return res.sendStatus(418);
@@ -204,7 +204,7 @@ route.post('/verify/:verificationToken',
       const payload = await decode(verificationToken, process.env.EMAIL_VERIFY_SECRET as string) as AccountValidationPayload;
       authorId = payload.id;
     } catch {
-      routeLogger.info(`Invalid token in verification request from ${req.ip || req.socket.remoteAddress}`);
+      routeLogger.info(`Invalid token in verification request from ${req.ip}`);
       return res.sendStatus(401);
     }
 
@@ -259,7 +259,7 @@ route.post('/issue',
     const token = req.user as AuthToken;
 
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       route: '/auth/issue',
       authorId: token.authorId,
       requestId: req.id

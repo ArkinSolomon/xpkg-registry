@@ -20,8 +20,10 @@ import { PackageData } from '../database/models/packageModel.js';
 import { VersionData } from '../database/models/versionModel.js';
 import AuthToken, { TokenPermission } from '../auth/authToken.js';
 import * as validators from '../util/validators.js';
-import { body, matchedData, validationResult } from 'express-validator';
+import { body, matchedData, param, validationResult } from 'express-validator';
 import * as authorDatabase from '../database/authorDatabase.js';
+import Version from '../util/version.js';
+import NoSuchPackageError from '../errors/noSuchPackageError.js';
 
 const route = Router();
 
@@ -31,7 +33,7 @@ route.get('/data', async (req, res) => {
   const routeLogger = logger.child({
     route: '/account/data',
     id: req.id,
-    ip: req.ip || req.socket.remoteAddress,
+    ip: req.ip,
     authorId: token.authorId
   });
 
@@ -60,7 +62,7 @@ route.patch('/changename',
     const routeLogger = logger.child({
       route: '/account/changename',
       id: req.id,
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       authorId: token.authorId
     });
     routeLogger.debug('Author attempting to change thier name');
@@ -134,7 +136,7 @@ route.get('/packages', async (req, res) => {
     route: '/account/packages',
     authorId: token.authorId,
     id: req.id,
-    ip: req.ip || req.socket.remoteAddress
+    ip: req.ip
   });
     
   routeLogger.debug('Author requesting their package data');
@@ -171,6 +173,128 @@ route.get('/packages', async (req, res) => {
   }
 });
 
+route.get('/packages/:packageId', 
+  validators.isPartialPackageId(param('packageId')),
+  async (req, res) => {
+    const token = req.user as AuthToken;
+
+    const routeLogger = logger.child({
+      route: '/packages/:packageId',
+      authorId: token.authorId,
+      id: req.id,
+      ip: req.ip
+    });
+    routeLogger.info('Author requesting specific package data');
+
+    const result = validationResult(req);
+    if (!result.isEmpty()) {
+      const message = result.array()[0].msg;
+      routeLogger.info(`Validation failed with message: ${message}`);
+      return res.status(400);
+    }
+
+    const { packageId } = matchedData(req) as {
+      packageId: string
+    };
+    routeLogger.setBindings({ packageId });
+    routeLogger.debug('Author requesting their package data');
+
+    if (!token.hasPermission(TokenPermission.ViewPackages)) {
+      routeLogger.info('Insufficient permissions to retrieve specific package information');
+      return res.sendStatus(401);
+    }
+
+    try {
+      const data: (PackageData & { versions: (Omit<VersionData, 'uploadDate'> & { uploadDate: string; })[]; }) = {
+        ...(await packageDatabase.getPackageData(packageId)),
+        versions: []
+      };
+
+      if (data.authorId !== token.authorId) {
+        logger.info('Author tried to retrieve data for a package that they do not own');
+        return res.sendStatus(404);
+      }
+  
+      data.versions = (await packageDatabase.getVersionData(packageId))
+        .map((v: Omit<VersionData, 'uploadDate'> & { uploadDate: Date | string; }) => {
+          v.uploadDate = (v.uploadDate as Date).toISOString();
+          return v as Omit<VersionData, 'uploadDate'> & { uploadDate: string; };
+        });
+        
+      routeLogger.info('Author retrieved package information for package');
+      res.json(data);
+    } catch (e) {
+      if (e instanceof NoSuchPackageError) {
+        routeLogger.info(e, 'No such package');
+        return res.sendStatus(404);
+      }
+
+      logger.error(e);
+      res.sendStatus(500);
+    }
+  });
+
+route.get('/packages/:packageId/:packageVersion', 
+  validators.isPartialPackageId(param('packageId')),
+  validators.asVersion(param('packageVersion')),
+  async (req, res) => {
+    const token = req.user as AuthToken;
+
+    const routeLogger = logger.child({
+      route: '/packages/:packageId/:packageVersion',
+      authorId: token.authorId,
+      id: req.id,
+      ip: req.ip
+    });
+
+    const result = validationResult(req);
+    if (!result.isEmpty()) {
+      const message = result.array()[0].msg;
+      routeLogger.info(`Validation failed with message: ${message}`);
+      return res
+        .status(400)
+        .send(message);
+    }
+
+    const { packageId, packageVersion } = matchedData(req) as {
+      packageVersion: Version,
+      packageId: string
+    };
+    routeLogger.setBindings({ packageId, packageVersion });
+    routeLogger.info('Author is requesting information for a specific package version');
+
+    if (!token.hasPermission(TokenPermission.ViewPackages)) {
+      routeLogger.info('Insufficient permissions to retrieve specific package information');
+      return res.sendStatus(401);
+    }
+
+    try {
+      const packageData = await packageDatabase.getPackageData(packageId);
+
+      if (packageData.authorId !== token.authorId) {
+        logger.info('Author tried to retrieve data for a package version that they do not own');
+        return res.sendStatus(404);
+      }
+  
+      const versionData = await packageDatabase.getVersionData(packageId, packageVersion) as Omit<VersionData, 'uploadDate'> & { uploadDate: Date | string; };
+      versionData.uploadDate = (versionData.uploadDate as Date).toISOString();
+        
+      routeLogger.info('Author retrieved package information for package');
+      res.json({
+        ...packageData,
+        versionData
+      });
+    } catch (e) {
+      if (e instanceof NoSuchPackageError) {
+        routeLogger.info(e, 'No such package version');
+        return res.sendStatus(404);
+      }
+
+      logger.error(e);
+      res.sendStatus(500);
+    }
+  });
+
 route.post('/reverify', async (req, res) => {
   const token = req.user as AuthToken;
 
@@ -182,7 +306,7 @@ route.post('/reverify', async (req, res) => {
     route: '/account/packages',
     authorId: token.authorId,
     id: req.id,
-    ip: req.ip || req.socket.remoteAddress
+    ip: req.ip
   });
   routeLogger.debug('Author is attempting to resend a verification email');
 

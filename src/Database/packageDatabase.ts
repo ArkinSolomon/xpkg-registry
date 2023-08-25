@@ -169,7 +169,11 @@ export async function getPackageData(packageId: string): Promise<PackageData>;
 
 export async function getPackageData(packageId?: string): Promise<PackageData[]|PackageData> {
   if (packageId) {
-    const pkg = await PackageModel.findOne({ packageId }).exec();
+    const pkg = await PackageModel
+      .findOne({ packageId })
+      .select('-_id -__v')
+      .lean()
+      .exec();
     if (!pkg)
       throw new NoSuchPackageError(packageId);
     return pkg;

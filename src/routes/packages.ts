@@ -96,7 +96,7 @@ route.patch('/description',
     const token = req.user as AuthToken;
 
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       route: '/packages/description',
       authorId: token.authorId,
       requestId: req.id
@@ -152,7 +152,7 @@ route.post('/new',
   async (req, res) => {
     const token = req.user as AuthToken;
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       authorId: token.authorId,
       route: '/packages/new'
     });
@@ -224,7 +224,7 @@ route.post('/upload',
     const token = req.user as AuthToken;
 
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       authorId: token.authorId,
       route: '/packages/upload',
       id: req.id
@@ -243,7 +243,6 @@ route.post('/upload',
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
-      routeLogger.debug(result);
       routeLogger.info(`Validation failed with message: ${message}`);
       return res
         .status(400)
@@ -356,7 +355,7 @@ route.post('/retry',
     const token = req.user as AuthToken;
 
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       authorId: token.authorId,
       route: '/packages/retry'
     });
@@ -444,7 +443,7 @@ route.post('/retry',
       });
     } catch (e) {
       if (e instanceof NoSuchPackageError) {
-        routeLogger.info('Version does not exist (version_not_exist)');
+        routeLogger.info(e, 'Version does not exist (version_not_exist)');
         return res
           .status(400)
           .send('version_not_exist');
@@ -458,10 +457,6 @@ route.post('/retry',
 route.patch('/incompatibilities',
   validators.asPartialXpkgPackageId(body('packageId')),
   validators.asVersion(body('packageVersion')),
-  body('dependencies').isArray({
-    min: 0,
-    max: 128
-  }),
   body('incompatibilities').isArray({
     min: 0,
     max: 128
@@ -470,7 +465,7 @@ route.patch('/incompatibilities',
     const token = req.user as AuthToken;
 
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       authorId: token.authorId,
       route: '/packages/incompatibilities'
     });
@@ -478,6 +473,7 @@ route.patch('/incompatibilities',
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
+      routeLogger.trace(result);
       routeLogger.info(`Validation failed with message: ${message}`);
       return res
         .status(400)
@@ -508,7 +504,7 @@ route.patch('/incompatibilities',
       [, incompatibilities] = validateLists('xpkg/' + packageId, versionData.dependencies, incompatibilities);
     } catch (e) {
       if (e instanceof NoSuchPackageError) {
-        routeLogger.info('No such package found');
+        routeLogger.info(e, 'No such package found');
         return res.sendStatus(401);
       }
 
@@ -541,7 +537,7 @@ route.patch('/xpselection',
     const token = req.user as AuthToken;
 
     const routeLogger = logger.child({
-      ip: req.ip || req.socket.remoteAddress,
+      ip: req.ip,
       authorId: token.authorId,
       route: '/packages/xpselection'
     });
@@ -578,7 +574,7 @@ route.patch('/xpselection',
       res.sendStatus(204);
     } catch (e) {
       if (e instanceof NoSuchPackageError) {
-        routeLogger.info('No such package found');
+        routeLogger.info(e, 'No such package found');
         return res.sendStatus(401);
       }
 

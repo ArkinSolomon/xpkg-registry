@@ -60,9 +60,20 @@ import cors from 'cors';
 import { pinoHttp } from 'pino-http';
 import logger from './logger.js';
 import { unzippedFilesLocation, xpkgFilesLocation } from './routes/packages.js';
+import { customAlphabet } from 'nanoid';
 
-if (process.env.NODE_ENV === 'test')
-  logger.warn('Registry starting in test mode');
+if (!process.env.NODE_ENV) {
+  logger.fatal('NODE_ENV not defined');
+  process.exit(1);
+}
+
+const alphaNumericNanoid = customAlphabet('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890');
+const SERVER_ID = process.env.SERVER_ID ?? `registry-${process.env.NODE_ENV}-${alphaNumericNanoid(32)}`;
+
+logger.info({
+  NODE_ENV: process.env.NODE_ENV,
+  SERVER_ID
+});
 
 process.on('unhandledRejection', err => {
   logger.error(err, 'Unhandled rejection');
@@ -86,18 +97,25 @@ logger.debug('Done cleaning up files');
 const app = Express();
 app.use(bodyParser.json());
 app.use(cors());
+
 app.use(function (_, res, next) {
   res.setHeader('X-Powered-By', 'Express, X-Pkg contributors, and you :)');
   next();
 });
+
 app.use(pinoHttp({
   logger,
+  genReqId: function (_, res) {
+    const requestId = Date.now().toString(16) + alphaNumericNanoid(19);
+    res.setHeader('X-Request-Id', requestId);
+    return requestId;
+  },
   serializers: {
     req: req => ({
       id: req.id,
       method: req.method,
       url: req.url,
-      remoteAddress: req.remoteAddress
+      ip: req.ip
     })
   }
 }));
@@ -111,7 +129,7 @@ import account from './routes/account.js';
 import * as packageDatabase from './database/packageDatabase.js';
 import { PackageType } from './database/models/packageModel.js';
 import { VersionStatus } from './database/models/versionModel.js';
-import rateLimiter from './util/rateLimiter.js';
+import rateLimiter, { globalRateLimiter } from './util/rateLimiter.js';
 import authorizeRoute from './auth/authorizeRoute.js';
 
 // Update this with all routes that require tokens
@@ -129,11 +147,13 @@ const authRoutes = [
 
 app.use(authRoutes, authorizeRoute);
 
+app.use('*', globalRateLimiter());
+
 app.use('/meta', rateLimiter('meta', 10, 10));
 
 app.use('/account/data', rateLimiter('account-data', 8, 5));
 app.use('/account/changename', rateLimiter('account-changename', 3, 5));
-app.use('/account/packages', rateLimiter('account-packages', 5, 3));
+app.use('/account/packages/*', rateLimiter('account-packages', 5, 3));
 
 app.use('/auth/login', rateLimiter('auth-login', 5, 3));
 app.use('/auth/create', rateLimiter('auth-create', 5, 3));
@@ -210,6 +230,8 @@ await updateData();
 const updateInterval = 60 * 1000;
 setInterval(updateData, updateInterval);
 logger.info(`Package data updating every ${updateInterval}ms`);
+
+app.use('*', (_, res) => res.sendStatus(404));
 
 const port = process.env.PORT || 443;
 app.listen(port, () => {

@@ -168,7 +168,7 @@ export default class VersionSelection {
 
       this._ranges.push(range);
     }
-
+    
     if (!this._isValid)
       return;
     

@@ -14,7 +14,7 @@
  */
 import {pino} from 'pino';
 
-const logger = pino({
-  level: 'debug'
-});
+const level = process.env.NODE_ENV === 'production' ? 'info' : 'trace';
+
+const logger = pino({ level });
 export default logger;

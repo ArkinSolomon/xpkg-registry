@@ -26,7 +26,7 @@ const rateLimitDB = mongoose.connection.useDb('rate-limits');
  * @param {string} name The unique name of the rate limiter.
  * @param {number} points The total amount of points that can be consumed.
  * @param {number} duration The duration (in seconds) before the points are reset to zero (in seconds).
- * @param {number} [blockDuration=2] The duration (in seconds) to wait before resetting points if all points are consumed. Defaults to 2 seconds.
+ * @param {number} [blockDuration=3] The duration (in seconds) to wait before resetting points if all points are consumed. Defaults to 2 seconds.
  * @returns {Function} A function that returns a middleware to rate limit.
  */
 export default function rateLimiter(name: string, points: number, duration: number, blockDuration = 3) {
@@ -41,7 +41,7 @@ export default function rateLimiter(name: string, points: number, duration: numb
       keyPrefix: 'rate-limit-' + name
     });
 
-    const ip = req.ip || req.socket.remoteAddress;
+    const ip = req.ip || null;
     let key = ip;
     if (req.user)
       key = (req.user as AuthToken).authorId;
@@ -62,15 +62,53 @@ export default function rateLimiter(name: string, points: number, duration: numb
 }
 
 /**
+ * Get a function which creates a new rate limiter for the global scope.
+ * 
+ * @returns {Function} An express middleware function which will rate limit based on ip address.
+ */
+export function globalRateLimiter() {
+  return function (req: Request, res: Response, next: NextFunction) {
+    const points = 30;
+    const duration = 10;
+    const blockDuration = 30;
+
+    const rateLimiter = new RateLimiterMongo({
+      storeClient: rateLimitDB,
+      points,
+      duration,
+      blockDuration,
+      inMemoryBlockDuration: blockDuration,
+      inMemoryBlockOnConsumed: points,
+      keyPrefix: 'rate-limit-global'
+    });
+    
+    if (!req.ip)
+      return res.sendStatus(409);
+    
+    rateLimiter.consume(req.ip, 1)
+      .then(rateLimiterRes => {
+        setHeaders(points, res, rateLimiterRes, true);
+        next();
+      })
+      .catch(rateLimiterRes => {
+        setHeaders(points, res, rateLimiterRes, true);
+        return res.sendStatus(429);
+      });
+  };
+}
+
+/**
  * Set headers after a rate limit consumption.
  * 
  * @param {number} points The total points that can be consumed.
  * @param {Response} res The remaining points that can be consumed.
  * @param {RateLimiterRes} rateLimiterRes The result of the rate limit consumption.
+ * @param {boolean} [isGlobal=false] True if the rate limit headers are for the global variables.
  */
-function setHeaders(points: number, res: Response, rateLimiterRes: RateLimiterRes) {
-  res.setHeader('Retry-After', rateLimiterRes.msBeforeNext / 1000);
-  res.setHeader('X-RateLimit-Limit', points);
-  res.setHeader('X-RateLimit-Remaining', rateLimiterRes.remainingPoints);
-  res.setHeader('X-RateLimit-Reset', new Date(Date.now() + rateLimiterRes.msBeforeNext).toISOString());
+function setHeaders(points: number, res: Response, rateLimiterRes: RateLimiterRes, isGlobal = false) {
+  const suffix = isGlobal ? '-Global' : '';
+  res.setHeader((suffix.length ? 'X-' : '') + 'Retry-After' + suffix, rateLimiterRes.msBeforeNext / 1000);
+  res.setHeader('X-RateLimit-Limit' + suffix, points);
+  res.setHeader('X-RateLimit-Remaining' + suffix, rateLimiterRes.remainingPoints);
+  res.setHeader('X-RateLimit-Reset' + suffix, new Date(Date.now() + rateLimiterRes.msBeforeNext).toISOString());
 }

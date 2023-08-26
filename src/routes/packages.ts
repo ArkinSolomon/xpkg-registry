@@ -29,7 +29,7 @@ import { customAlphabet } from 'nanoid/async';
 import { isMainThread } from 'worker_threads';
 import SelectionChecker from '../util/versionSelection.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
-import { PackageData, PackageType } from '../database/models/packageModel.js';
+import { PackageType } from '../database/models/packageModel.js';
 import { VersionStatus } from '../database/models/versionModel.js';
 import AuthToken from '../auth/authToken.js';
 import InvalidListError from '../errors/invalidListError.js';
@@ -58,30 +58,33 @@ route.get('/', (_, res) => {
   res.sendFile(storeFile);
 });
 
-route.get('/info/:packageId/:version',
+route.get('/info/:packageId/:packageVersion',
   validators.isPartialPackageId(param('packageId')),
-  validators.asVersion(param('version')),
+  validators.asVersion(param('packageVersion')),
+  body('privateKey').trim().notEmpty().optional(),
   async (req, res) => {
     const result = validationResult(req);
     if (!result.isEmpty())
-      return res.sendStatus(400);
+      return res.sendStatus(400); 
   
-    const { packageId, version } = matchedData(req) as {
-      version: Version,
-      packageId: string
+    const { packageId, packageVersion, privateKey } = matchedData(req) as {
+      packageVersion: Version,
+      packageId: string,
+      privateKey?: string
     };
 
     try {
-      // TODO: Make sure we don't send private or unprocessed packages
-      const versionData = await packageDatabase.getVersionData(packageId, version);
-      res
-        .status(200)
-        .json({
-          loc: versionData.loc,
-          hash: versionData.hash,
-          dependencies: versionData.dependencies,
-          incompatibilities: versionData.incompatibilities
-        });
+      const versionData = await packageDatabase.getVersionData(packageId, packageVersion);
+      if ((versionData.isPublic || privateKey === versionData.privateKey) && versionData.status === VersionStatus.Processed)
+        res
+          .status(200)
+          .json({
+            loc: versionData.loc,
+            hash: versionData.hash,
+            dependencies: versionData.dependencies,
+            incompatibilities: versionData.incompatibilities
+          });
+      res.sendStatus(404);
     } catch (e) {
       if (e instanceof NoSuchPackageError) 
         return res.sendStatus(404);
@@ -101,12 +104,12 @@ route.patch('/description',
       authorId: token.authorId,
       requestId: req.id
     });
-    routeLogger.debug('Author wants to update package description');
+    routeLogger.trace('Author wants to update package description');
 
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
-      routeLogger.info(`Validation failed with message: ${message}`);
+      routeLogger.trace(`Validation failed with message: ${message}`);
       return res
         .status(400)
         .send(message);
@@ -121,7 +124,7 @@ route.patch('/description',
       routeLogger.setBindings({ packageId });
 
       if (!token.canUpdatePackageDescription(packageId)) {
-        routeLogger.info('Insufficient permissions to update package description');
+        routeLogger.trace('Insufficient permissions to update package description');
         return res.sendStatus(401);
       }
 
@@ -129,7 +132,7 @@ route.patch('/description',
 
       // We want to make sure they're updating the description for a package that they own
       if (!(await packageDatabase.doesAuthorHavePackage(token.authorId, packageId))) {
-        routeLogger.info('Author does not own package');
+        routeLogger.trace('Author does not own package');
         return res.sendStatus(403);
       }
 
@@ -156,7 +159,7 @@ route.post('/new',
       authorId: token.authorId,
       route: '/packages/new'
     });
-    routeLogger.debug('New package requested, will validate fields');
+    routeLogger.trace('New package requested, will validate fields');
 
     const result = validationResult(req);
     if (!result.isEmpty()) {
@@ -181,21 +184,20 @@ route.post('/new',
       ]);
 
       if (packageIdExists) {
-        routeLogger.info('Package id already in use (id_in_use)');
+        routeLogger.trace('Package id already in use (id_in_use)');
         return res
           .status(400)
           .send('id_in_use');
       }
       else if (packageNameExists) {
-        routeLogger.info('Package name already in use (name_in_use)');
+        routeLogger.trace('Package name already in use (name_in_use)');
         return res
           .status(400)
           .send('name_in_use');
       }
 
       await packageDatabase.addPackage(packageId, packageName, token.authorId, (await token.getAuthor()).authorName, description, packageType);
-      routeLogger.info('Registered new package in database');
-
+      routeLogger.trace('Registered new package in database');
       res.sendStatus(204);
     } catch (e) {
       routeLogger.error(e);
@@ -211,14 +213,18 @@ route.post('/upload',
   body('isPublic').isBoolean().withMessage('not_bool'),
   body('isPrivate').isBoolean().withMessage('not_bool'),
   body('isStored').isBoolean().withMessage('not_bool'),
-  body('dependencies').customSanitizer(v => JSON.parse(v)).isArray({
-    min: 0,
-    max: 128
-  }).withMessage('bad_dep_arr'),
-  body('incompatibilities').customSanitizer(v => JSON.parse(v)).isArray({
-    min: 0,
-    max: 128
-  }).withMessage('bad_inc_arr'),
+  body('dependencies')
+    .trim().notEmpty().withMessage('dep_not_str')
+    .customSanitizer(v => JSON.parse(v)).isArray({
+      min: 0,
+      max: 128
+    }).withMessage('bad_dep_arr'),
+  body('incompatibilities')
+    .trim().notEmpty().withMessage('inc_not_str')
+    .customSanitizer(v => JSON.parse(v)).isArray({
+      min: 0,
+      max: 128
+    }).withMessage('bad_inc_arr'),
   async (req, res) => {
     const file = req.file;
     const token = req.user as AuthToken;
@@ -229,14 +235,14 @@ route.post('/upload',
       route: '/packages/upload',
       id: req.id
     });
-    routeLogger.debug('New version upload request, will validate fields');
+    routeLogger.trace('New version upload request, will validate fields');
 
     const fileDeleteCb = async () => {
       if (file) {
-        routeLogger.debug('Forcefully deleting downloaded file on finish');
+        routeLogger.trace('Forcefully deleting downloaded file on finish');
         await rm(file.path, { force: true });
       } else 
-        routeLogger.debug('Will not forcefully delete downloaded file');
+        routeLogger.trace('Will not forcefully delete downloaded file');
     };
     res.once('finish', fileDeleteCb);
 
@@ -263,14 +269,14 @@ route.post('/upload',
     let { incompatibilities, dependencies } = data;
 
     if (!file) {
-      routeLogger.info('No file uploaded (no_file)');
+      routeLogger.trace('No file uploaded (no_file)');
       return res
         .status(400)
         .send('no_file');
     }
 
     if (!token.canUploadPackageVersion(packageId)) {
-      routeLogger.info('Insufficient permissions to upload a package version');
+      routeLogger.trace('Insufficient permissions to upload a package version');
       return res.sendStatus(401);
     }
 
@@ -278,19 +284,17 @@ route.post('/upload',
       [dependencies, incompatibilities] = validateLists(packageId, dependencies, incompatibilities);
 
       const author = await token.getAuthor();
-      const authorHasPackage = await packageDatabase.doesAuthorHavePackage(author.authorId, packageId);
+      const packageData = await packageDatabase.getPackageData(packageId);
 
-      if (!authorHasPackage) {
-        routeLogger.info('Author does not own package');
+      if (packageData.authorId !== author.authorId) {
+        routeLogger.trace('Author does not own package');
         return res.status(403);
       }
-      const authorPackages = await packageDatabase.getAuthorPackages(author.authorId);
-      const thisPackage = authorPackages.find(p => p.packageId === packageId) as PackageData;
 
       const versionExists = await packageDatabase.versionExists(packageId, packageVersion);
 
       if (versionExists) {
-        routeLogger.info('Version already exists');
+        routeLogger.trace('Version already exists');
         return res
           .status(400)
           .send('version_exists');
@@ -302,15 +306,15 @@ route.post('/upload',
         privateKey: !isPublic && isStored ? await privateKeyNanoid(32) : void (0)
       }, dependencies, incompatibilities, xpSelection);
 
-      routeLogger.debug('Registered package version in database');
+      routeLogger.trace('Registered package version in database');
 
       const fileProcessorData: FileProcessorData = {
         zipFileLoc: file.path,
         authorId: author.authorId,
-        packageName: thisPackage.packageName,
+        packageName: packageData.packageName,
         packageId,
         packageVersion: packageVersion.toString(),
-        packageType: thisPackage.packageType,
+        packageType: packageData.packageType,
         dependencies,
         incompatibilities,
         accessConfig: {
@@ -325,8 +329,8 @@ route.post('/upload',
       const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });
       worker.on('message', v => {
         if (v === 'started') {
-          routeLogger.debug('Package processing started');
           res.sendStatus(204);
+          routeLogger.trace('Package processing started');
         }
       });
 
@@ -335,10 +339,13 @@ route.post('/upload',
       });
     } catch (e) {
       if (e instanceof InvalidListError) {
-        routeLogger.info(e.message);
+        routeLogger.trace(e, 'Invalid list');
         return res
           .status(400)
           .send(e.response);
+      } else if (e instanceof NoSuchPackageError) {
+        routeLogger.trace(e, 'Package does not exist');
+        return res.sendStatus(403);
       }
 
       routeLogger.error(e);
@@ -359,10 +366,10 @@ route.post('/retry',
       authorId: token.authorId,
       route: '/packages/retry'
     });
-    routeLogger.debug('Processing retry request');
+    routeLogger.trace('Processing retry request');
 
     if (!file) {
-      routeLogger.info('No file uploaded (no_file)');
+      routeLogger.trace('No file uploaded (no_file)');
       return res
         .status(400)
         .send('no_file');
@@ -371,7 +378,7 @@ route.post('/retry',
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
-      routeLogger.info(`Validation failed with message: ${message}`);
+      routeLogger.trace(`Validation failed with message: ${message}`);
       return res
         .status(400)
         .send(message);
@@ -384,42 +391,41 @@ route.post('/retry',
 
     try {
       const author = await token.getAuthor();
-      const authorPackages = await packageDatabase.getAuthorPackages(author.authorId);
+      const packageData = await packageDatabase.getPackageData(packageId);
 
       if (!token.canUploadPackageVersion(packageId)) {
-        routeLogger.info('Insufficient permissions to retry upload');
+        routeLogger.trace('Insufficient permissions to retry upload');
         await rm(file.path, { force: true });
         return res.sendStatus(401);
       }
 
-      const thisPackage = authorPackages.find(p => p.packageId === packageId);
-      if (!thisPackage) {
-        routeLogger.info('Author does not own package, or it doesn\'t exist (no_package)');
-        return res
-          .status(400)
-          .send('no_package');
+      if (packageData.authorId !== author.authorId) {
+        routeLogger.trace('Author does not own package, or it doesn\'t exist (no_package)');
+        return res.sendStatus(403);
       }
   
       const versionData = await packageDatabase.getVersionData(packageId, packageVersion);
-      routeLogger.debug('Got version data');
 
       if (versionData.status === VersionStatus.Processed || versionData.status === VersionStatus.Processing) {
-        routeLogger.info('Author is attempting to re-upload non-failed package');
+        routeLogger.trace('Author is attempting to re-upload non-failed package');
         return res
           .status(400)
           .send('cant_retry');
       }
 
-      routeLogger.debug('Setting version status back to processing');
-      await packageDatabase.updateVersionStatus(packageId, packageVersion, VersionStatus.Processing);
+      routeLogger.trace('Setting version status back to processing');
+      await Promise.all([
+        packageDatabase.updateVersionStatus(packageId, packageVersion, VersionStatus.Processing),
+        packageDatabase.updateVersionDate(packageId, packageVersion)
+      ]);
 
       const fileProcessorData: FileProcessorData = {
         zipFileLoc: file.path,
         authorId: author.authorId,
-        packageName: thisPackage.packageName,
+        packageName: packageData.packageName,
         packageId,
         packageVersion: packageVersion.toString(),
-        packageType: thisPackage.packageType,
+        packageType: packageData.packageType,
         dependencies: versionData.dependencies,
         incompatibilities: versionData.incompatibilities,
         accessConfig: {
@@ -433,7 +439,7 @@ route.post('/retry',
       const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });
       worker.on('message', v => {
         if (v === 'started') {
-          routeLogger.debug('Package processing started');
+          routeLogger.trace('Package processing started');
           res.sendStatus(204);
         }
       });
@@ -443,7 +449,7 @@ route.post('/retry',
       });
     } catch (e) {
       if (e instanceof NoSuchPackageError) {
-        routeLogger.info(e, 'Version does not exist (version_not_exist)');
+        routeLogger.trace(e, 'Version does not exist (version_not_exist)');
         return res
           .status(400)
           .send('version_not_exist');
@@ -460,10 +466,9 @@ route.patch('/incompatibilities',
   body('incompatibilities').isArray({
     min: 0,
     max: 128
-  }),
+  }).withMessage('bad_inc_arr'),
   async (req, res) => {
     const token = req.user as AuthToken;
-
     const routeLogger = logger.child({
       ip: req.ip,
       authorId: token.authorId,
@@ -473,8 +478,7 @@ route.patch('/incompatibilities',
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
-      routeLogger.trace(result);
-      routeLogger.info(`Validation failed with message: ${message}`);
+      routeLogger.trace(`Validation failed with message: ${message}`);
       return res
         .status(400)
         .send(message);
@@ -494,37 +498,37 @@ route.patch('/incompatibilities',
     });
 
     if (!token.canUpdateVersionData(packageId)) {
-      routeLogger.info('Insufficient permissions to update incompatibilities');
+      routeLogger.trace('Insufficient permissions to update incompatibilities');
       return res.sendStatus(401);
     }
 
     try {
-      const versionData = await packageDatabase.getVersionData(packageId, packageVersion);
+      const [isAuthorsPkg, versionData] = await Promise.all([
+        packageDatabase.doesAuthorHavePackage(token.authorId, packageId),
+        packageDatabase.getVersionData(packageId, packageVersion)
+      ]);
 
-      [, incompatibilities] = validateLists('xpkg/' + packageId, versionData.dependencies, incompatibilities);
-    } catch (e) {
-      if (e instanceof NoSuchPackageError) {
-        routeLogger.info(e, 'No such package found');
+      if (!isAuthorsPkg) {
+        routeLogger.trace('Author attempted to modify package that is not their own');
         return res.sendStatus(401);
       }
 
-      if (e instanceof InvalidListError) {
-        routeLogger.info(e.message);
+      [, incompatibilities] = validateLists('xpkg/' + packageId, versionData.dependencies, incompatibilities);
+      await packageDatabase.updateVersionIncompatibilities(packageId, packageVersion, incompatibilities);
+      routeLogger.trace('Incompatibilities updated successfully');
+      res.sendStatus(204);
+    } catch (e) {
+      if (e instanceof NoSuchPackageError) {
+        routeLogger.trace(e, 'No such package found');
+        return res.sendStatus(401);
+      } else if (e instanceof InvalidListError) {
+        routeLogger.trace(e.message);
         return res
           .status(400)
           .send(e.response);
       }
 
       routeLogger.error(e);
-      return res.sendStatus(500);
-    }
-
-    try {
-      await packageDatabase.updateVersionIncompatibilities(packageId, packageVersion, incompatibilities);
-      routeLogger.info('Incompatibilities updated successfully');
-      res.sendStatus(204);
-    } catch (e) {
-      logger.error(e);
       return res.sendStatus(500);
     }
   });
@@ -564,17 +568,23 @@ route.patch('/xpselection',
     });
 
     if (!token.canUpdateVersionData(packageId)) {
-      routeLogger.info('Insufficient permissions to update incompatibilities');
+      routeLogger.trace('Insufficient permissions to update X-Plane selection');
       return res.sendStatus(401);
     }
 
     try {
+      const packageData = await packageDatabase.getPackageData(packageId);
+      if (packageData.authorId !== token.authorId) {
+        routeLogger.trace('Author attempted to update X-Plane selection of a package that is not their own');
+        return res.sendStatus(401);
+      }
+
       await packageDatabase.updateVersionXPSelection(packageId, packageVersion, xpSelection); 
       routeLogger.info('X-Plane version updated successfully');
       res.sendStatus(204);
     } catch (e) {
       if (e instanceof NoSuchPackageError) {
-        routeLogger.info(e, 'No such package found');
+        routeLogger.info(e, 'Can not update X-Plane selection of non-existent package');
         return res.sendStatus(401);
       }
 

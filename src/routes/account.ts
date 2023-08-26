@@ -29,7 +29,6 @@ const route = Router();
 
 route.get('/data', async (req, res) => {
   const token = req.user as AuthToken;
-
   const routeLogger = logger.child({
     route: '/account/data',
     id: req.id,
@@ -41,7 +40,7 @@ route.get('/data', async (req, res) => {
     routeLogger.info('Insufficient permissions to retrieve author data');
     return res.sendStatus(401);
   }
-  routeLogger.debug('Author requesting their account data');
+  routeLogger.trace('Author requesting their account data');
 
   const author = await token.getAuthor();
   return res.json({
@@ -129,6 +128,17 @@ route.patch('/changename',
     }
   });
 
+type OptionalAuthorInformationPackageData = Omit<Omit<PackageData, 'authorName'>, 'authorId'> & {
+  authorId?: string;
+  authorName?: string;
+};
+type VersionDataOptIdUploadDateAsObjOrStr = Omit<Omit<VersionData, 'packageId'>, 'uploadDate'> & {
+  uploadDate: Date | string;
+  packageId?: string;
+};
+type VersionDataNoIdUploadDateAsStr = Omit<Omit<VersionData, 'packageId'>, 'uploadDate'> & {
+  uploadDate: string;
+};
 route.get('/packages', async (req, res) => {
   const token = req.user as AuthToken;
 
@@ -146,27 +156,30 @@ route.get('/packages', async (req, res) => {
     return res.sendStatus(401);
   }
 
-  const data: (PackageData & { versions: VersionData[]; })[] = [];
+  const data: (OptionalAuthorInformationPackageData & { versions: VersionDataNoIdUploadDateAsStr[]; })[] = [];
   try {
-    const packages = await packageDatabase.getAuthorPackages(token.authorId);
+    const packages = await packageDatabase.getAuthorPackages(token.authorId) as OptionalAuthorInformationPackageData[];
     for (const pkg of packages) {
       const d = {
         ...pkg,
-        versions: [] as (Omit<VersionData, 'uploadDate'> & { uploadDate: Date | string; })[]
+        versions: [] as VersionDataNoIdUploadDateAsStr[]
       };
 
+      delete d.authorId;
+      delete d.authorName;
       d.versions = (await packageDatabase.getVersionData(pkg.packageId))
-        .map((v: Omit<VersionData, 'uploadDate'> & { uploadDate: Date | string; }) => {
+        .map((v: VersionDataOptIdUploadDateAsObjOrStr) => {
           v.uploadDate = (v.uploadDate as Date).toISOString();
-          return v as Omit<VersionData, 'uploadDate'> & { uploadDate: string; };
+          delete v.packageId;
+          return v as VersionDataNoIdUploadDateAsStr;
         });
       
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      data.push(d as any);
+      data.push(d);
     }
 
     routeLogger.debug('Author retrieved their package data');
-    res.json(data);
+    res.json({ packages: data });
   } catch (e) {
     routeLogger.error(e);
     return res.sendStatus(500);
@@ -205,7 +218,7 @@ route.get('/packages/:packageId',
     }
 
     try {
-      const data: (PackageData & { versions: (Omit<VersionData, 'uploadDate'> & { uploadDate: string; })[]; }) = {
+      const data: OptionalAuthorInformationPackageData & { versions: VersionDataNoIdUploadDateAsStr[]; } = {
         ...(await packageDatabase.getPackageData(packageId)),
         versions: []
       };
@@ -214,11 +227,15 @@ route.get('/packages/:packageId',
         logger.info('Author tried to retrieve data for a package that they do not own');
         return res.sendStatus(404);
       }
+
+      delete data.authorId;
+      delete data.authorName;
   
       data.versions = (await packageDatabase.getVersionData(packageId))
-        .map((v: Omit<VersionData, 'uploadDate'> & { uploadDate: Date | string; }) => {
+        .map((v: VersionDataOptIdUploadDateAsObjOrStr) => {
           v.uploadDate = (v.uploadDate as Date).toISOString();
-          return v as Omit<VersionData, 'uploadDate'> & { uploadDate: string; };
+          delete v.packageId;
+          return v as VersionDataNoIdUploadDateAsStr;
         });
         
       routeLogger.info('Author retrieved package information for package');
@@ -251,9 +268,7 @@ route.get('/packages/:packageId/:packageVersion',
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
       routeLogger.info(`Validation failed with message: ${message}`);
-      return res
-        .status(400)
-        .send(message);
+      return res.status(400);
     }
 
     const { packageId, packageVersion } = matchedData(req) as {
@@ -276,13 +291,14 @@ route.get('/packages/:packageId/:packageVersion',
         return res.sendStatus(404);
       }
   
-      const versionData = await packageDatabase.getVersionData(packageId, packageVersion) as Omit<VersionData, 'uploadDate'> & { uploadDate: Date | string; };
+      const versionData = await packageDatabase.getVersionData(packageId, packageVersion) as VersionDataOptIdUploadDateAsObjOrStr;
       versionData.uploadDate = (versionData.uploadDate as Date).toISOString();
+      delete versionData.packageId;
         
       routeLogger.info('Author retrieved package information for package');
       res.json({
         ...packageData,
-        versionData
+        versionData: versionData as VersionDataNoIdUploadDateAsStr
       });
     } catch (e) {
       if (e instanceof NoSuchPackageError) {

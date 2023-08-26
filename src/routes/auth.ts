@@ -175,8 +175,8 @@ route.post('/login',
   });
 
 route.post('/verify/:verificationToken',
-  param('verificationToken').notEmpty(),
-  body('validation').notEmpty(),
+  param('verificationToken').trim().notEmpty(),
+  body('validation').trim().notEmpty(),
   async (req, res) => {
 
     const result = validationResult(req);

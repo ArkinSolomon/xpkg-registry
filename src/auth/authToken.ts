@@ -227,9 +227,8 @@ export default class AuthToken {
    * @returns {Promise} A promise which resolves to the Mongoose author document of the author that issued this token.
    */
   public async getAuthor() {
-    if (this._authorDoc)
-      return this._authorDoc;
-    this._authorDoc = await getAuthorDoc(this._payload.authorId);
+    if (!this._authorDoc)
+      this._authorDoc = await getAuthorDoc(this._payload.authorId);    
     return this._authorDoc;
   }
 }

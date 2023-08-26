@@ -69,10 +69,12 @@ if (!process.env.NODE_ENV) {
 
 const alphaNumericNanoid = customAlphabet('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890');
 const SERVER_ID = process.env.SERVER_ID ?? `registry-${process.env.NODE_ENV}-${alphaNumericNanoid(32)}`;
+const serverIdHash = hasha(SERVER_ID, {encoding: 'hex', algorithm: 'sha1'});
 
 logger.info({
   NODE_ENV: process.env.NODE_ENV,
-  SERVER_ID
+  SERVER_ID,
+  serverIdHash
 });
 
 process.on('unhandledRejection', err => {
@@ -83,7 +85,7 @@ process.on('uncaughtException', err => {
   logger.error(err, 'Uncaught exception');
 });
 
-logger.debug('Cleaning up leftover files from last run');
+logger.trace('Cleaning up leftover files from last run');
 await Promise.all([
   fs.rm(unzippedFilesLocation, { recursive: true, force: true }),
   fs.rm(xpkgFilesLocation, { recursive: true, force: true })
@@ -92,7 +94,7 @@ await Promise.all([
   fs.mkdir(unzippedFilesLocation, { recursive: true }),
   fs.mkdir(xpkgFilesLocation, { recursive: true })
 ]);
-logger.debug('Done cleaning up files');
+logger.trace('Done cleaning up files');
 
 const app = Express();
 app.use(bodyParser.json());
@@ -103,11 +105,17 @@ app.use(function (_, res, next) {
   next();
 });
 
+let currentRequest = 0;
+const maxRequest = 9999;
 app.use(pinoHttp({
   logger,
-  genReqId: function (_, res) {
-    const requestId = Date.now().toString(16) + alphaNumericNanoid(19);
+  genReqId: function (_, res): string {
+    if (currentRequest >= maxRequest)
+      currentRequest = 0;
+
+    const requestId = serverIdHash + Date.now().toString(16) + currentRequest.toString().padStart(4, '0') + alphaNumericNanoid(8);
     res.setHeader('X-Request-Id', requestId);
+    ++currentRequest;
     return requestId;
   },
   serializers: {
@@ -131,6 +139,7 @@ import { PackageType } from './database/models/packageModel.js';
 import { VersionStatus } from './database/models/versionModel.js';
 import rateLimiter, { globalRateLimiter } from './util/rateLimiter.js';
 import authorizeRoute from './auth/authorizeRoute.js';
+import hasha from 'hasha';
 
 // Update this with all routes that require tokens
 const authRoutes = [
@@ -149,7 +158,7 @@ app.use(authRoutes, authorizeRoute);
 
 app.use('*', globalRateLimiter());
 
-app.use('/meta', rateLimiter('meta', 10, 10));
+app.use('/meta', rateLimiter('meta', 4, 10));
 
 app.use('/account/data', rateLimiter('account-data', 8, 5));
 app.use('/account/changename', rateLimiter('account-changename', 3, 5));
@@ -160,6 +169,7 @@ app.use('/auth/create', rateLimiter('auth-create', 5, 3));
 app.use('/auth/verify', rateLimiter('auth-verify', 3, 4));
 app.use('/auth/issue', rateLimiter('auth-issue', 3, 3));
 
+app.use('/packages', rateLimiter('packages', 4, 4));
 app.use('/packages/info', rateLimiter('packages-info', 10, 2));
 app.use('/packages/new', rateLimiter('packages-new', 3, 5));
 app.use('/packages/upload', rateLimiter('packages-upload', 3, 8));
@@ -189,7 +199,8 @@ app.get('/meta', (_, res) => {
  * @returns {Promise<void>} A promise which resolves when the operation completes.
  */
 async function updateData(): Promise<void> {
-  logger.debug('Updating package data');
+  logger.trace('Updating package data');
+  const startTime = Date.now();
   const data: FullRegistryData = {
     generated: '',
     packages: []
@@ -221,9 +232,10 @@ async function updateData(): Promise<void> {
       data.packages.push(pkgData);
   }
 
-  logger.debug(`Package data updated, ${data.packages.length || 'no'} package${data.packages.length == 1 ? '' : 's'}`);
+  await fs.writeFile(storeFile, JSON.stringify(data), 'utf-8');
+  const timeTaken = Date.now() - startTime;
+  logger.trace(`Package data updated, ${data.packages.length || 'no'} package${data.packages.length == 1 ? '' : 's'}, took ${timeTaken}ms`);
   data.generated = new Date().toISOString();
-  return fs.writeFile(storeFile, JSON.stringify(data), 'utf-8');
 }
 
 await updateData();

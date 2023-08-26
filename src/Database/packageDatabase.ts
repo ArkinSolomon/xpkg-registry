@@ -48,7 +48,7 @@ export async function addPackage(packageId: string, packageName: string, authorI
  * Create a new version for a package. If both published and private are false, the package is assumed to registered only. Does not check for package or version existence.
  * 
  * @async
- * @param {string} packageId The package identifier of the package that this version is for.
+ * @param {string} packageId The partial package identifier of the package that this version is for.
  * @param {Version} version The version string of the version.
  * @param {Object} accessConfig The access config of the package version.
  * @param {boolean} accessConfig.isPublic True if the package is to be public.
@@ -74,6 +74,31 @@ export async function addPackageVersion(packageId: string, version: Version, acc
   });
 
   await newVersion.save();
+}
+
+/**
+ * Set the last uploaded date to a date, or now.
+ * 
+ * @async
+ * @param {string} packageId The partial package identifier of the package to update the version of.
+ * @param {Version} version The version of the package of which to update the date.
+ * @param {Date} [date] The date to update the version's uploaded date. Defaults to now.
+ * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
+ * @throws {NoSuchPackageError} Thrown if a package with the given version does not exist, or if the version does not exist for the given identifier.
+ */
+export async function updateVersionDate(packageId: string, version: Version, date = new Date()): Promise<void> {
+  const result = await VersionModel.updateOne({
+    packageId,
+    version: version.toString()
+  }, {
+    $set: {
+      uploadDate: date
+    }
+  })
+    .exec();
+  
+  if (!result.modifiedCount)
+    throw new NoSuchPackageError(packageId, version);
 }
 
 /**

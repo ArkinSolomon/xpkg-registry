@@ -18,7 +18,6 @@ import path from 'path';
 import { TokenPermission } from '../auth/authToken.js';
 import Version from './version.js';
 import { PackageType } from '../database/models/packageModel.js';
-import logger from '../logger.js';
 import VersionSelection from './versionSelection.js';
 
 const profaneWords = fs
@@ -36,7 +35,6 @@ export function isProfane(text: string): boolean {
   
   for (const part of parts) {
     if (profaneWords.includes(part.toLowerCase())) {
-      logger.debug({ part }, 'Profane word detected!');
       return true;
     }
   }
@@ -98,7 +96,7 @@ export function isValidName(chain: ValidationChain): ValidationChain {
   return chain
     .trim()
     .notEmpty().bail().withMessage('invalid_or_empty_str')
-    .custom(value => !isProfane(value)).bail().withMessage('profane')
+    .custom(value => !isProfane(value)).bail().withMessage('profane_name')
     .custom(value => /^[a-z][a-z0-9\x20-.]+[a-z0-9]$/i.test(value)).withMessage('invalid_name');
 }
 
@@ -198,9 +196,7 @@ export function asPackageType(chain: ValidationChain): ValidationChain {
         case 'livery': return PackageType.Livery;
         case 'executable': return PackageType.Livery;
         case 'other': return PackageType.Other;
-        default:
-          logger.debug({ value }, 'Invalid package type given');
-          return null;
+        default: return null;
         }
       })();
       if (!pkgType)

@@ -563,12 +563,12 @@ route.patch('/xpselection',
 
     routeLogger.setBindings({
       packageId,
-      packageVersion,
+      packageVersion: packageVersion.toString(),
       newXpSel: xpSelection.toString()
     });
 
     if (!token.canUpdateVersionData(packageId)) {
-      routeLogger.trace('Insufficient permissions to update X-Plane selection');
+      routeLogger.trace('Insufficient permissions to update X-Plane version selection');
       return res.sendStatus(401);
     }
 
@@ -580,11 +580,11 @@ route.patch('/xpselection',
       }
 
       await packageDatabase.updateVersionXPSelection(packageId, packageVersion, xpSelection); 
-      routeLogger.info('X-Plane version updated successfully');
+      routeLogger.info('X-Plane version selection updated successfully');
       res.sendStatus(204);
     } catch (e) {
       if (e instanceof NoSuchPackageError) {
-        routeLogger.info(e, 'Can not update X-Plane selection of non-existent package');
+        routeLogger.info(e, 'Can not update X-Plane version selection of non-existent package');
         return res.sendStatus(401);
       }
 
@@ -674,8 +674,6 @@ function validateLists(packageId: string, dependencies: [string, string][], inco
     const selection = new SelectionChecker(i[1]);
     if (!selection.isValid)
       throw new InvalidListError('invalid_inc_sel', 'Invalid incompatibility selection for ' + i[0]);
-
-    logger.warn(newIncompatibilities);
     i[1] = selection.toString();
   });
 

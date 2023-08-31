@@ -275,7 +275,10 @@ route.get('/packages/:packageId/:packageVersion',
       packageVersion: Version,
       packageId: string
     };
-    routeLogger.setBindings({ packageId, packageVersion });
+    routeLogger.setBindings({
+      packageId,
+      packageVersion: packageVersion.toString()
+    });
     routeLogger.info('Author is requesting information for a specific package version');
 
     if (!token.hasPermission(TokenPermission.ViewPackages)) {

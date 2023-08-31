@@ -143,7 +143,7 @@ export function asPartialXpkgPackageId(chain: ValidationChain): ValidationChain 
   return chain
     .trim()
     .notEmpty().bail().withMessage('invalid_or_empty_str')
-    .custom(value => validateId(value) && !value.startsWith('xpkg/')).bail().withMessage('wrong_repo')
+    .custom(value => validateId(value) && !value.startsWith('xpkg/')).bail().withMessage('invalid_id_or_repo')
     .customSanitizer(value => value.replace('xpkg/', ''));
 }
 
@@ -157,7 +157,7 @@ export function isPartialPackageId(chain: ValidationChain): ValidationChain {
   return chain
     .trim()
     .notEmpty().bail().withMessage('invalid_or_empty_str')
-    .custom(value => validateId(value) && !value.includes('/')).withMessage('full_id');
+    .custom(value => validateId(value) && !value.includes('/')).withMessage('full_id_or_invalid');
 }
 
 /**
@@ -173,7 +173,7 @@ export function isValidDescription(chain: ValidationChain): ValidationChain {
     .isLength({
       min: 10,
       max: 8192
-    }).withMessage('bad_desc_len')
+    }).bail().withMessage('bad_desc_len')
     .custom(value => !isProfane(value)).withMessage('profane_desc');
 }
 
@@ -217,6 +217,10 @@ export function asPackageType(chain: ValidationChain): ValidationChain {
 export function asVersion(chain: ValidationChain): ValidationChain {
   return chain
     .notEmpty().bail().withMessage('invalid_or_empty_str')
+    .isLength({
+      min: 1,
+      max: 15
+    }).bail().withMessage('bad_version_len')
     .custom(value => {
       const version = Version.fromString(value);
       if (!version)
@@ -239,6 +243,10 @@ export function asVersion(chain: ValidationChain): ValidationChain {
 export function asVersionSelection(chain: ValidationChain): ValidationChain {
   return chain
     .notEmpty().bail().withMessage('invalid_or_empty_str')
+    .isLength({
+      min: 1,
+      max: 256
+    }).bail().withMessage('bad_sel_len')
     .custom(value => {
       const selection = new VersionSelection(value);
       if (!selection.isValid)

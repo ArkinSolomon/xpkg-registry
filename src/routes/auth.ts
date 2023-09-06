@@ -99,14 +99,14 @@ route.post('/create',
       routeLogger.setBindings({
         authorId: newAuthorId
       });
-      routeLogger.debug('New author account registered in database');
+      routeLogger.trace('New author account registered in database');
 
       const [token, verificationToken] = await Promise.all([
         author.createAuthToken(),
         author.createVerifyToken()
       ]);
 
-      routeLogger.debug('Generated auth and verification tokens');
+      routeLogger.trace('Generated auth and verification tokens');
 
       author.sendEmail('Welcome to X-Pkg', `Welcome to X-Pkg!\n\nTo start uploading packages or resources to the portal, you need to verify your email first: http://localhost:3001/verify/${verificationToken} (this link expires in 24 hours).`);
       res.json({ token });
@@ -161,7 +161,7 @@ route.post('/login',
         return res.sendStatus(401);
       }
 
-      routeLogger.debug('Login credentials valid');
+      routeLogger.trace('Login credentials valid');
       const token = await author.createAuthToken();
       routeLogger.info('Successful login, token generated');
 
@@ -219,7 +219,7 @@ route.post('/verify/:verificationToken',
         return res.sendStatus(403);
       }
 
-      routeLogger.debug('Will attempt to set the verification status of the author to true');
+      routeLogger.trace('Will attempt to set the verification status of the author to true');
       await authorDatabase.verify(authorId);
       routeLogger.info('Verification status changed');
       res.sendStatus(204);
@@ -264,7 +264,7 @@ route.post('/issue',
       authorId: token.authorId,
       requestId: req.id
     });
-    routeLogger.debug('Author wants to issue a token');
+    routeLogger.trace('Author wants to issue a token');
 
     const result = validationResult(req);
     if (!result.isEmpty()) 
@@ -310,7 +310,7 @@ route.post('/issue',
         .send('name_exists');
     }
 
-    routeLogger.debug('Name checks passed');
+    routeLogger.trace('Name checks passed');
 
     const hasSpecificDescriptionUpdatePermission = (permissions & TokenPermission.UpdateDescriptionSpecificPackages) > 0;
     const hasSpecificVersionUploadPermission = (permissions & TokenPermission.UploadVersionSpecificPackages) > 0;
@@ -348,13 +348,13 @@ route.post('/issue',
         .send('invalid_perm');
     }
 
-    routeLogger.debug('Permissions checks passed');
+    routeLogger.trace('Permissions checks passed');
 
     try {
       const author = await token.getAuthor();
       const authorPackages = await getAuthorPackages(author.authorId);
 
-      routeLogger.debug('Retrieved author data');
+      routeLogger.trace('Retrieved author data');
 
       const descriptionUpdatePackages = processPackageIdList(unprocessedDescriptionUpdatePackages, authorPackages);
       const versionUploadPackages = processPackageIdList(unprocessedVersionUploadPackages, authorPackages);
@@ -367,7 +367,7 @@ route.post('/issue',
           .send('invalid_arr');
       }
 
-      routeLogger.debug('Processed packages');
+      routeLogger.trace('Processed packages');
 
       if (!hasSpecificDescriptionUpdatePermission && descriptionUpdatePackages.length ||
       !hasSpecificVersionUploadPermission && versionUploadPackages.length || 
@@ -389,13 +389,13 @@ route.post('/issue',
         versionUploadPackages,
         updateVersionDataPackages
       });
-      routeLogger.debug('Token information generated');
+      routeLogger.trace('Token information generated');
 
       await author.registerNewToken(newToken, expires, name, description);
-      routeLogger.debug('Registered new token in author database');
+      routeLogger.trace('Registered new token in author database');
 
       const signed = await newToken.sign(`${expires}d`);
-      routeLogger.debug('Signed new token');
+      routeLogger.trace('Signed new token');
 
       await author.sendEmail('New Token', 'A new token has been issued for your X-Pkg account. If you did not request this, reset your password immediately.');
       logger.info('New token signed successfully');

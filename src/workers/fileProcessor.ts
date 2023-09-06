@@ -49,10 +49,11 @@ export type FileProcessorData = {
 };
 
 import fs from 'fs/promises';
+import * as objectStorage from 'oci-objectstorage';
+import { ConfigFileAuthenticationDetailsProvider } from 'oci-common';
 import { existsSync as exists, rmSync } from 'fs';
 import { unlinkSync, lstatSync, Stats, createReadStream} from 'fs';
 import path from 'path';
-import { S3Client, PutObjectCommand, GetObjectCommand } from '@aws-sdk/client-s3';
 import Version from '../util/version.js';
 import loggerBase from '../logger.js';
 import { nanoid } from 'nanoid/async';
@@ -60,7 +61,6 @@ import { isMainThread, parentPort, workerData } from 'worker_threads';
 import * as packageDatabase from '../database/packageDatabase.js';
 import * as authorDatabase from '../database/authorDatabase.js';
 import hasha from 'hasha';
-import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import JobsServiceManager, { JobData, JobType, PackagingInfo } from './jobsServiceManager.js';
 import { unzippedFilesLocation, xpkgFilesLocation } from '../routes/packages.js';
 import childProcess from 'child_process';
@@ -68,12 +68,20 @@ import { VersionStatus } from '../database/models/versionModel.js';
 import { PackageType } from '../database/models/packageModel.js';
 
 if (isMainThread) {
-  console.error('Worker files can not be run');
+  console.error('Worker files can not be run as part of the main thread');
   process.exit(1); 
 }
 
-const PUBLIC_BUCKET_NAME = 'xpkgregistry';
-const PRIVATE_BUCKET_NAME = 'xpkgprivatepackagesdev';
+const { OCI_CONFIG_FILE, COMPARTMENT_ID, PUBLIC_BUCKET_NAME, PRIVATE_BUCKET_NAME, TEMPORARY_BUCKET_NAME } = process.env;
+if (!OCI_CONFIG_FILE || !COMPARTMENT_ID || !PUBLIC_BUCKET_NAME || !PRIVATE_BUCKET_NAME || !TEMPORARY_BUCKET_NAME) {
+  console.error('Missing environment variable(s) for worker thread');
+  parentPort?.emit('missing_env_vars');
+  process.exit(1); 
+}
+
+const provider = new ConfigFileAuthenticationDetailsProvider(OCI_CONFIG_FILE);
+const client = new objectStorage.ObjectStorageClient({ authenticationDetailsProvider: provider });
+
 const data = workerData as FileProcessorData;
 
 const packageVersion = Version.fromString(data.packageVersion) as Version;
@@ -86,20 +94,25 @@ const {
   dependencies,
   accessConfig
 } = data;
-const [tempId, awsId] = await Promise.all([nanoid(32), nanoid(64)]);
+const [tempId, storageId] = await Promise.all([nanoid(32), nanoid(64)]);
 
 let unzippedFileLoc = path.join(unzippedFilesLocation, tempId);
-const xpkgFileLoc = path.join(xpkgFilesLocation, awsId + '.xpkg');
+const xpkgFileLoc = path.join(xpkgFilesLocation, storageId + '.xpkg');
 let originalUnzippedRoot: string;
 
 const logger = loggerBase.child({
-  ...data,
+  packageId,
+  packageVersion: packageVersion.toString(),
   tempId,
-  zipFileLoc,
-  unzippedFileLoc,
-  packageVersion: packageVersion.toString()
 });
-logger.info('Starting processing of package');
+
+logger.info({
+  ...data,
+  dependencies: `${data.dependencies.length} dependencies`,
+  zipFileLoc,
+  unzippedFileLoc
+}, 'Starting processing of package');
+
 parentPort?.postMessage('started');
 
 let author = await authorDatabase.getAuthorDoc(authorId);
@@ -117,25 +130,22 @@ await jobsService.waitForAuthorization();
 let fileSize = 0;
 let hasUsedStorage = false;
 try {
-  logger.debug('Calculating unzipped file size');
-  const unzippedSize =await getUnzippedFileSize(zipFileLoc);
-  logger.setBindings({
-    unzippedSize
-  });
-  logger.debug('Calculated unzipped file size');
+  logger.trace('Calculating unzipped file size');
+  const unzippedSize = await getUnzippedFileSize(zipFileLoc);
+  logger.info({ unzippedSize}, 'Calculated unzipped file size');
 
   if (unzippedSize > 17179869184) {
-    logger.info('Unzipped zip file is greater than 16 gibibytes');
+    logger.info('Unzipped zip file is greater than 16 gibibytes, can not continue');
     await Promise.all([
       fs.rm(zipFileLoc, { force: true }),
       packageDatabase.updateVersionStatus(packageId, packageVersion, VersionStatus.FailedFileTooLarge),
       sendFailureEmail(VersionStatus.FailedFileTooLarge)
     ]);
-    logger.debug('Deleted zip file, updated database, and notified author');
+    logger.trace('Deleted zip file, updated database, and notified author');
     process.exit(0);
   }
 
-  logger.debug('Decompressing zip file');
+  logger.trace('Searching for __MACOSX directory');
   const hasMacOSX = await new Promise<boolean>((resolve, reject) => {
     const searchProcess = childProcess.exec(`unzip -l "${zipFileLoc}" | grep "__MACOSX" -c -m 1`);
 
@@ -146,6 +156,8 @@ try {
     searchProcess.on('error', reject);
   });
 
+  logger.trace('Decompressig zip file');
+  const startTime = new Date();
   await new Promise<void>((resolve, reject) => {
     childProcess.exec(`unzip -qq -d "${unzippedFileLoc}" "${zipFileLoc}" -x "__MACOSX/*" && chown -R $USER "${unzippedFileLoc}" && chmod -R 700 "${unzippedFileLoc}"`, err => {
       if (err)
@@ -153,16 +165,16 @@ try {
       resolve();
     });
   });
-  logger.debug('Zip file decompressed');
+  logger.trace(`Zip file decompressed, took ${Date.now() - startTime.getTime()}ms`);
   await fs.rm(zipFileLoc);
-  logger.debug('Zip file deleted');
+  logger.trace('Zip file deleted');
 
   originalUnzippedRoot = unzippedFileLoc;
   let files = await fs.readdir(unzippedFileLoc);
 
   // Insufficient permissions to delete __MACOSX directory, so just process the sub-folder
   if (hasMacOSX) {
-    logger.debug('__MACOSX directory detected');
+    logger.trace('__MACOSX directory detected');
     if (files.length !== 1) {
       logger.info('Only __MACOSX file provided');
       await cleanupUnzippedFail(VersionStatus.FailedMACOSX);
@@ -197,7 +209,7 @@ try {
     dependencies
   };
 
-  logger.debug('Processing files');
+  logger.trace('Processing files');
   let hasSymbolicLink = false;
   if (await findTrueFile(unzippedFileLoc, (s, p) => {
 
@@ -228,7 +240,7 @@ try {
   const parent = path.resolve(xpkgFileLoc, '..');
   await fs.mkdir(parent, { recursive: true });
   
-  logger.debug('Done processing files, zipping xpkg file');
+  logger.trace('Done processing files, zipping xpkg file');
 
   await new Promise<void>((resolve, reject) => {
     childProcess.exec(`zip -r "${xpkgFileLoc}" *`, {
@@ -240,30 +252,23 @@ try {
     });
   });
 
-  logger.debug('Done zipping xpkg file');
+  logger.trace('Done zipping xpkg file');
   await fs.rm(originalUnzippedRoot, {recursive: true, force: true});
-  logger.debug('Deleted unzipped files');
+  logger.trace('Deleted unzipped files');
 
-  logger.debug('Generating file hash');
+  logger.trace('Generating file hash');
   const hashStream = createReadStream(xpkgFileLoc);
   const hash = await hasha.fromStream(hashStream, { algorithm: 'sha256', encoding: 'hex' });
-  logger.setBindings({ hash });
-  logger.debug('Generated xpkg file hash');
+  logger.info({ hash }, 'Generated xpkg file hash');
 
   fileSize = (await fs.stat(xpkgFileLoc)).size;
-  logger.setBindings({
-    fileSize
-  });
-  logger.debug('Calculated xpkg file size');
+  logger.info({ fileSize }, 'Calculated xpkg file size');
 
-  logger.debug('Calculating installed size');
+  logger.trace('Calculating installed size');
   const installedSize = await getUnzippedFileSize(xpkgFileLoc);
-  logger.setBindings({
-    installedSize
-  });
-  logger.debug('Calculated installed size');
+  logger.info({ installedSize }, 'Calculated installed size');
 
-  logger.debug('Trying to consume storage');
+  logger.trace('Trying to consume storage');
   author = await authorDatabase.getAuthorDoc(authorId);
   const canConsume = await author.tryConsumeStorage(fileSize);
 
@@ -272,71 +277,89 @@ try {
     await Promise.all([
       fs.rm(xpkgFileLoc, { force: true }),
       packageDatabase.updateVersionStatus(packageId, packageVersion, VersionStatus.FailedNotEnoughSpace),
-      sendFailureEmail(VersionStatus.FailedNotEnoughSpace)
+      sendFailureEmail(VersionStatus.FailedNotEnoughSpace),
     ]);
-    logger.debug('Deleted xpkg file, updated database, and notified author');
+    logger.trace('Deleted xpkg file, updated database, and notified author');
     process.exit(0);
   } 
   hasUsedStorage = true;
-  logger.debug('Consumed storage');
+  logger.trace('Consumed storage');
 
-  const s3client = new S3Client({
-    region: 'us-east-2'
-  });
+  logger.trace('Fetching namespace from Oracle Cloud');
+  const { value: namespace } = await client.getNamespace({});
 
-  logger.debug('Uploading package version to S3');
+  logger.trace('Uploading package version to OCI object storage');
   const fileStream = createReadStream(xpkgFileLoc);
-  let privateUrl;
-  if (accessConfig.isStored) {
-    const putCmd = new PutObjectCommand({
-      Bucket: PUBLIC_BUCKET_NAME,
-      Key: awsId,
-      Body: fileStream
-    });
-    await s3client.send(putCmd);
-  } else {
-    const putCmd = new PutObjectCommand({
-      Bucket: PRIVATE_BUCKET_NAME,
-      Key: awsId,
-      Body: fileStream
-    });
-    await s3client.send(putCmd);
+  let objectUrl;
 
-    const getCmd = new GetObjectCommand({
-      Bucket: PRIVATE_BUCKET_NAME,
-      Key: awsId,
-      ResponseContentDisposition: `attachment; filename="${packageId}@${packageVersion.toString()}.xpkg"`
-    });
-  
-    // Get a URL that expires in a day
-    privateUrl = await getSignedUrl(s3client, getCmd, { expiresIn: 24 * 60 * 60 }) as string;
+  if (accessConfig.isStored) {
+    logger.trace('Package is stored, uploading to permanent (public or private) bucket');
+    const bucketName = accessConfig.isPrivate ? PRIVATE_BUCKET_NAME : PUBLIC_BUCKET_NAME;
+    const putObjectRequest: objectStorage.requests.PutObjectRequest = {
+      namespaceName: namespace,
+      bucketName,
+      putObjectBody: fileStream,
+      objectName: storageId,
+      contentLength: fileSize
+    };
+    await client.putObject(putObjectRequest);
+    objectUrl = `https://objectstorage.us-ashburn-1.oraclecloud.com/n/${namespace}/b/${bucketName}/o/${storageId}`;
+  } else {
+    logger.trace('Package not stored, uploading to temporary bucket');
+    const putObjectRequest: objectStorage.requests.PutObjectRequest = {
+      namespaceName: namespace,
+      bucketName: TEMPORARY_BUCKET_NAME,
+      putObjectBody: fileStream,
+      objectName: storageId,
+      contentLength: fileSize
+    };
+    await client.putObject(putObjectRequest);
+    logger.trace('Uploaded file to temporary bucket, generating presigned URL');
+
+    const preAuthReqDetails: objectStorage.models.CreatePreauthenticatedRequestDetails = {
+      name: `tmp-pkg-${authorId}-${tempId}`,
+      accessType: objectStorage.models.CreatePreauthenticatedRequestDetails.AccessType.ObjectRead,
+      objectName: storageId,
+      timeExpires: new Date(Date.now() + (24 * 60 * 60 * 1000))
+    };
+
+    const request: objectStorage.requests.CreatePreauthenticatedRequestRequest = {
+      namespaceName: namespace,
+      bucketName: TEMPORARY_BUCKET_NAME,
+      createPreauthenticatedRequestDetails: preAuthReqDetails,
+    };
+    const preAuthReqResp = await client.createPreauthenticatedRequest(request);
+    objectUrl = preAuthReqResp.preauthenticatedRequest.fullPath;
   }
   
-  logger.debug('Uploaded package to S3');
-  await packageDatabase.resolveVersionData(
-    packageId,
-    packageVersion,
-    hash,
-    accessConfig.isStored ? `https://d2cbjuk8vv1874.cloudfront.net/${awsId}` : 'NOT_STORED',
-    fileSize,
-    installedSize
-  );
-  logger.debug('Updated database with version');
-  await fs.unlink(xpkgFileLoc);
-  logger.debug('Deleted local xpkg file, sending job done to jobs service');
+  logger.trace('Uploaded package to OCI object storage');
+  
+  await Promise.all([
+    packageDatabase.resolveVersionData(
+      packageId,
+      packageVersion,
+      hash,
+      fileSize,
+      installedSize,
+      accessConfig.isStored ? objectUrl : void 0
+    ),
+    fs.unlink(xpkgFileLoc)
+  ]);
+  logger.trace('Deleted local xpkg file and updated database, sending job done to jobs service');
 
   if (accessConfig.isStored)
     await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `Your package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}`);
   else 
-    await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `Your package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}\nLink: ${privateUrl}`);
+    await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `Your package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}\nLink: objectUrl`);
 
-  logger.debug('Author notified of process success, notifying jobs service');
+  logger.trace('Author notified of process success, notifying jobs service');
   await jobsService.completed();
   logger.info('Worker thread completed');
 } catch (e) {
   if (hasUsedStorage) {
-    logger.info('Error occured after storage claimed, attempting to free');
+    logger.warn('Error occured after storage claimed, attempting to free');
     await author.freeStorage(fileSize);
+    logger.trace('Freed claimed storage');
   }
 
   if (jobsService.aborted)
@@ -458,7 +481,7 @@ function getVersionStatusReason(versionStatus: VersionStatus): string {
   case VersionStatus.Processed:
   case VersionStatus.Processing:
     return 'If you see this sentence, something broke.';
-  default: return '<<Unknown Reason>>';
+  default: return '<Unknown Reason>';
   }
 }
 

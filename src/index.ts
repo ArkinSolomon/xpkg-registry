@@ -73,9 +73,9 @@ const serverIdHash = hasha(SERVER_ID, {encoding: 'hex', algorithm: 'sha1'});
 
 logger.info({
   NODE_ENV: process.env.NODE_ENV,
-  SERVER_ID,
+  serverId: SERVER_ID,
   serverIdHash
-});
+}, 'X-Pkg Registry initializing...');
 
 process.on('unhandledRejection', err => {
   logger.error(err, 'Unhandled rejection');

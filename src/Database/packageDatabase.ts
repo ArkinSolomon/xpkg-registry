@@ -108,13 +108,13 @@ export async function updateVersionDate(packageId: string, version: Version, dat
  * @param {string} packageId The id of the package which contains the version to update.
  * @param {Version} version The version of the package to update the version data of.
  * @param {string} hash The sha256 checksum of the package.
- * @param {string} loc The URL of the package, or "NOT_STORED" if the package is not stored.
  * @param {number} size The size of the xpkg file in bytes.
  * @param {number} installedSize The size of the unzipped xpkg file in bytes.
+ * @param {string} [loc] The URL of the package, or undefined if the package is not stored.
  * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
  * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
  */
-export async function resolveVersionData(packageId: string, version: Version, hash: string, loc: string, size: number, installedSize: number): Promise<void> {
+export async function resolveVersionData(packageId: string, version: Version, hash: string, size: number, installedSize: number, loc?: string): Promise<void> {
   const result = await VersionModel.findOneAndUpdate({
     packageId,
     version

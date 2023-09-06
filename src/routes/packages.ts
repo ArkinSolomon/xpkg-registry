@@ -265,8 +265,13 @@ route.post('/upload',
       dependencies: [string, string][];
       incompatibilities: [string, string][];
     };
-    const { packageId, packageVersion, xpSelection, isPublic, isPrivate, isStored } = data;
-    let { incompatibilities, dependencies } = data;
+    const { packageId, packageVersion, xpSelection } = data;
+    let { incompatibilities, dependencies, isPublic, isPrivate, isStored } = data;
+
+    // This work around fixes that express validator sometimes considers these as strings instead of booleans
+    isPublic = typeof isPublic === 'string' ? isPublic === 'true' : isPublic;
+    isPrivate = typeof isPrivate === 'string' ? isPrivate === 'true' : isPrivate;
+    isStored = typeof isStored === 'string' ? isStored === 'true' : isStored;
 
     if (!file) {
       routeLogger.trace('No file uploaded (no_file)');
@@ -327,10 +332,13 @@ route.post('/upload',
 
       res.removeListener('finish', fileDeleteCb);
       const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });
-      worker.on('message', v => {
+      worker.once('message', v => {
         if (v === 'started') {
           res.sendStatus(204);
           routeLogger.trace('Package processing started');
+        } else {
+          res.sendStatus(500);
+          routeLogger.error('Worker not started, failed with message: ' + v);
         }
       });
 

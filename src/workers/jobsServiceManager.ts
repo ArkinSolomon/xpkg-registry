@@ -108,7 +108,7 @@ export default class JobsServiceManager {
     });
 
     this._socket.on('handshake', trustKey => {
-      this._logger.info('Trust key recieved from jobs service');
+      this._logger.trace('Trust key recieved from jobs service');
 
       if (!trustKey || typeof trustKey !== 'string') {
         this._logger.error('Jobs service not trusted, invalid data provided');
@@ -125,17 +125,17 @@ export default class JobsServiceManager {
         return;
       }
 
-      this._logger.debug('Jobs service trust key valid');      
+      this._logger.trace('Jobs service trust key valid');      
       this._socket.emit('handshake', process.env.JOBS_SERVICE_PASSWORD);
     });
 
     this._socket.on('authorized', () => {
-      this._logger.info('Authorized successfully with jobs service');
+      this._logger.trace('Authorized successfully with jobs service');
       this._socket.emit('job_data', jobData);
     });
 
     this._socket.on('job_data_recieived', () => {
-      this._logger.info('Job data received by jobs service');
+      this._logger.trace('Job data received by jobs service');
       this._authorized = true;
     });
 
@@ -150,16 +150,16 @@ export default class JobsServiceManager {
         if (!this._done)
           this._logger.error(`Unexpectedly disconnected from jobs service (${reason})`);
         else
-          this._logger.debug(`Gracefully disconnected from jobs service (${reason})`);
+          this._logger.trace(`Gracefully disconnected from jobs service (${reason})`);
       } else 
-        this._logger.info(`Disconnected from jobs service, job aborted (${reason})`);
+        this._logger.warn(`Disconnected from jobs service, job aborted (${reason})`);
       
       // Terrible way to do this, but we need the logs to finish (and logger.flush doesn't work :/)
       setTimeout(() => process.exit(), 250);
     });
     
     this._socket.on('abort', () => {
-      this._logger.info('Abort request recieved from jobs service');
+      this._logger.trace('Abort request recieved from jobs service');
       this._socket.emit('aborting');
       this._abort();
     });
@@ -191,12 +191,12 @@ export default class JobsServiceManager {
    */
   waitForAuthorization(): Promise<void> {
     if (!this._authorized)
-      this._logger.debug('Waiting for authorization with jobs service');
+      this._logger.trace('Waiting for authorization with jobs service');
     return new Promise(resolve => {
       const intervalId = setInterval(() => {
         if (this._authorized) {
           clearInterval(intervalId);
-          this._logger.debug('Worker authorized with jobs service');
+          this._logger.trace('Worker authorized with jobs service');
           resolve();
         }
       }, 500);
@@ -219,7 +219,7 @@ export default class JobsServiceManager {
     return new Promise(resolve => {
       this._done = true;
       this._socket.once('goodbye', () => {
-        this._logger.info('Jobs service acknowledged that the job is complete');
+        this._logger.trace('Jobs service acknowledged that the job is complete');
         resolve();
         this._socket.disconnect();
       });

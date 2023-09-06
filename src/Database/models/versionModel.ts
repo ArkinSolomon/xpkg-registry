@@ -59,7 +59,7 @@ export type VersionData = {
   hash: string;
   isPublic: boolean;
   isStored: boolean;
-  loc: string;
+  loc?: string;
   privateKey?: string;
   installs: number;
   uploadDate: Date;
@@ -99,13 +99,13 @@ const versionSchema = new Schema<VersionData>({
   loc: {
     type: String,
     required(this: VersionData) {
-      return this.status === VersionStatus.Processed && !this.isPublic && this.isStored;
+      return this.status === VersionStatus.Processed && this.isStored;
     }
   },
   privateKey: {
     type: String,
     required(this: VersionData) {
-      return !this.isPublic;
+      return !this.isPublic && this.isStored;
     },
   },
   installs: {

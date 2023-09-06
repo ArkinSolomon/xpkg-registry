@@ -64,7 +64,7 @@ route.patch('/changename',
       ip: req.ip,
       authorId: token.authorId
     });
-    routeLogger.debug('Author attempting to change thier name');
+    routeLogger.trace('Author attempting to change thier name');
 
     const result = validationResult(req);
     if (!result.isEmpty()) {
@@ -88,7 +88,7 @@ route.patch('/changename',
 
       const checkName = (newName as string).toLowerCase();
       if (author.authorName.toLowerCase() === checkName) {
-        routeLogger.debug('Author sent invalid name change request');
+        routeLogger.trace('Author sent invalid name change request');
         return res
           .status(400)
           .send('same_name');
@@ -119,7 +119,7 @@ route.patch('/changename',
       }
     
       await author.changeName(newName as string);
-      routeLogger.debug('Author changed name successfully, notifying author');
+      routeLogger.trace('Author changed name successfully, notifying author');
       author.sendEmail('X-Pkg Name changed', `Your name on X-Pkg has been changed successfully. Your new name is now "${newName}". This name will appear to all users on X-Pkg.`);
       res.sendStatus(204);
     } catch (e) {
@@ -149,7 +149,7 @@ route.get('/packages', async (req, res) => {
     ip: req.ip
   });
     
-  routeLogger.debug('Author requesting their package data');
+  routeLogger.trace('Author requesting their package data');
 
   if (!token.hasPermission(TokenPermission.ViewPackages)) {
     routeLogger.info('Insufficient permissions to retrieve packages');
@@ -178,7 +178,7 @@ route.get('/packages', async (req, res) => {
       data.push(d);
     }
 
-    routeLogger.debug('Author retrieved their package data');
+    routeLogger.trace('Author retrieved their package data');
     res.json({ packages: data });
   } catch (e) {
     routeLogger.error(e);
@@ -210,7 +210,7 @@ route.get('/packages/:packageId',
       packageId: string
     };
     routeLogger.setBindings({ packageId });
-    routeLogger.debug('Author requesting their package data');
+    routeLogger.trace('Author requesting their package data');
 
     if (!token.hasPermission(TokenPermission.ViewPackages)) {
       routeLogger.info('Insufficient permissions to retrieve specific package information');
@@ -327,7 +327,7 @@ route.post('/reverify', async (req, res) => {
     id: req.id,
     ip: req.ip
   });
-  routeLogger.debug('Author is attempting to resend a verification email');
+  routeLogger.trace('Author is attempting to resend a verification email');
 
   if (typeof body.validation !== 'string') {
     routeLogger.info('No reCAPTCHA validation token provided');
@@ -348,7 +348,7 @@ route.post('/reverify', async (req, res) => {
 
     const verificationToken = await author.createVerifyToken();
     await author.sendEmail('X-Pkg Verification', `Click on this link to verify your account: http://localhost:3000/verify/${verificationToken} (this link expires in 24 hours).`);
-    routeLogger.debug('Author resent verification email');
+    routeLogger.trace('Author resent verification email');
     res.sendStatus(204);
   } catch(e) {
     routeLogger.error(e);

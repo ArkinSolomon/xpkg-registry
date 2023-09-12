@@ -272,8 +272,8 @@ route.get('/packages/:packageId/:packageVersion',
     }
 
     const { packageId, packageVersion } = matchedData(req) as {
-      packageVersion: Version,
-      packageId: string
+      packageId: string;
+      packageVersion: Version;
     };
     routeLogger.setBindings({
       packageId,

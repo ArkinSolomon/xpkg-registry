@@ -21,6 +21,7 @@ import fs from 'fs';
 import * as validators from '../util/validators.js';
 import Version from '../util/version.js';
 import * as packageDatabase from '../database/packageDatabase.js';
+import * as analyticsDatabase from '../database/analyticsDatabase.js';
 import { FileProcessorData } from '../workers/fileProcessor.js';
 import logger from '../logger.js';
 import { Worker } from 'worker_threads';
@@ -75,8 +76,9 @@ route.get('/info/:packageId/:packageVersion',
 
     try {
       const versionData = await packageDatabase.getVersionData(packageId, packageVersion);
-      if ((versionData.isPublic || privateKey === versionData.privateKey) && versionData.status === VersionStatus.Processed)
-        res
+      if ((versionData.isPublic || privateKey === versionData.privateKey) && versionData.status === VersionStatus.Processed) {
+        await analyticsDatabase.incrementDownloadCount(packageId, packageVersion);
+        return res
           .status(200)
           .json({
             loc: versionData.loc,
@@ -84,6 +86,7 @@ route.get('/info/:packageId/:packageVersion',
             dependencies: versionData.dependencies,
             incompatibilities: versionData.incompatibilities
           });
+      }
       res.sendStatus(404);
     } catch (e) {
       if (e instanceof NoSuchPackageError) 

@@ -20,17 +20,17 @@ import VersionModel, { VersionData, VersionStatus } from './models/versionModel.
 import VersionSelection from '../util/versionSelection.js';
 
 /**
-   * Add a new package to the database. Does not check for existence.
-   * 
-   * @async 
-   * @param {string} packageId The package identifier of the new package.
-   * @param {string} packageName The name of the new package.
-   * @param {string} authorId The id of the author that is creating the package.
-   * @param {string} authorName The name of the author that is creating the package
-   * @param {string} description The description of the new package.
-   * @param {PackageType} packageType The type of the package that is being created.
-   * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
-   */
+ * Add a new package to the database. Does not check for existence.
+ * 
+ * @async 
+ * @param {string} packageId The package identifier of the new package.
+ * @param {string} packageName The name of the new package.
+ * @param {string} authorId The id of the author that is creating the package.
+ * @param {string} authorName The name of the author that is creating the package
+ * @param {string} description The description of the new package.
+ * @param {PackageType} packageType The type of the package that is being created.
+ * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
+ */
 export async function addPackage(packageId: string, packageName: string, authorId: string, authorName: string, description: string, packageType: PackageType): Promise<void> {
   const newPackage = new PackageModel({
     packageId,
@@ -49,7 +49,7 @@ export async function addPackage(packageId: string, packageName: string, authorI
  * 
  * @async
  * @param {string} packageId The partial package identifier of the package that this version is for.
- * @param {Version} version The version string of the version.
+ * @param {Version} packageVersion The version string of the version.
  * @param {Object} accessConfig The access config of the package version.
  * @param {boolean} accessConfig.isPublic True if the package is to be public.
  * @param {boolean} accessConfig.isStored True if the package is to be stored, must be true if public is true.
@@ -59,14 +59,14 @@ export async function addPackage(packageId: string, packageName: string, authorI
  * @param {VersionSelection} xpSelection The X-Plane selection.
  * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
  */
-export async function addPackageVersion(packageId: string, version: Version, accessConfig: {
+export async function addPackageVersion(packageId: string, packageVersion: Version, accessConfig: {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
   }, dependencies: [string, string][], incompatibilities: [string, string][], xpSelection: VersionSelection): Promise<void> {
   const newVersion = new VersionModel({
     packageId,
-    version,
+    packageVersion: packageVersion.toString(),
     ...accessConfig,
     dependencies,
     incompatibilities,
@@ -81,15 +81,15 @@ export async function addPackageVersion(packageId: string, version: Version, acc
  * 
  * @async
  * @param {string} packageId The partial package identifier of the package to update the version of.
- * @param {Version} version The version of the package of which to update the date.
+ * @param {Version} packageVersion The version of the package of which to update the date.
  * @param {Date} [date] The date to update the version's uploaded date. Defaults to now.
  * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
  * @throws {NoSuchPackageError} Thrown if a package with the given version does not exist, or if the version does not exist for the given identifier.
  */
-export async function updateVersionDate(packageId: string, version: Version, date = new Date()): Promise<void> {
+export async function updateVersionDate(packageId: string, packageVersion: Version, date = new Date()): Promise<void> {
   const result = await VersionModel.updateOne({
     packageId,
-    version: version.toString()
+    packageVersion: packageVersion.toString()
   }, {
     $set: {
       uploadDate: date
@@ -98,7 +98,7 @@ export async function updateVersionDate(packageId: string, version: Version, dat
     .exec();
   
   if (!result.modifiedCount)
-    throw new NoSuchPackageError(packageId, version);
+    throw new NoSuchPackageError(packageId, packageVersion);
 }
 
 /**
@@ -106,7 +106,7 @@ export async function updateVersionDate(packageId: string, version: Version, dat
  * 
  * @async
  * @param {string} packageId The id of the package which contains the version to update.
- * @param {Version} version The version of the package to update the version data of.
+ * @param {Version} packageVersion The version of the package to update the version data of.
  * @param {string} hash The sha256 checksum of the package.
  * @param {number} size The size of the xpkg file in bytes.
  * @param {number} installedSize The size of the unzipped xpkg file in bytes.
@@ -114,10 +114,10 @@ export async function updateVersionDate(packageId: string, version: Version, dat
  * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
  * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or version.
  */
-export async function resolveVersionData(packageId: string, version: Version, hash: string, size: number, installedSize: number, loc?: string): Promise<void> {
+export async function resolveVersionData(packageId: string, packageVersion: Version, hash: string, size: number, installedSize: number, loc?: string): Promise<void> {
   const result = await VersionModel.findOneAndUpdate({
     packageId,
-    version
+    packageVersion: packageVersion.toString()
   }, {
     hash,
     loc,
@@ -127,7 +127,7 @@ export async function resolveVersionData(packageId: string, version: Version, ha
   }).updateOne();
 
   if (!result.modifiedCount)
-    throw new NoSuchPackageError(packageId, version);
+    throw new NoSuchPackageError(packageId, packageVersion);
 }
 
 /**
@@ -135,21 +135,21 @@ export async function resolveVersionData(packageId: string, version: Version, ha
  * 
  * @async
  * @param {string} packageId The id of the package which contains the version to update.
- * @param {Version} version The version of the package to update the status of.
+ * @param {Version} packageVersion The version of the package to update the status of.
  * @param {VersionStatus} newStatus The new status to set.
  * @returns {Promise<void>} A promise which resolves if the operation completes successfully.
  * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or if the package version does not exist.
  */
-export async function updateVersionStatus(packageId: string, version: Version, newStatus: VersionStatus): Promise<void> {
+export async function updateVersionStatus(packageId: string, packageVersion: Version, newStatus: VersionStatus): Promise<void> {
   const result = await VersionModel.findOneAndUpdate({
     packageId,
-    version
+    packageVersion: packageVersion.toString()
   }, {
     status: newStatus
   }).updateOne();
 
   if (!result.modifiedCount)
-    throw new NoSuchPackageError(packageId, version);
+    throw new NoSuchPackageError(packageId, packageVersion);
 }
 
 /**
@@ -157,21 +157,21 @@ export async function updateVersionStatus(packageId: string, version: Version, n
  * 
  * @async 
  * @param {string} packageId The id of the package to update the private key of.
- * @param {Version} version The version of the package to update the private key of.
+ * @param {Version} packageVersion The version of the package to update the private key of.
  * @param {string} privateKey The new private key of the version. Does not check access config.
  * @returns {Promise<void>} A promise which resolves if the operation completes.
  * @throws {NoSuchPackageError} Error thrown if no package exists with the given id or if the package version does not exist.
  */
-export async function updatePrivateKey(packageId: string, version: Version, privateKey: string): Promise<void> {
+export async function updatePrivateKey(packageId: string, packageVersion: Version, privateKey: string): Promise<void> {
   const result = await VersionModel.findOneAndUpdate({
     packageId,
-    version
+    packageVersion: packageVersion.toString()
   }, {
     privateKey
   }).updateOne();
 
   if (result.modifiedCount !== 1)
-    throw new NoSuchPackageError(packageId, version);
+    throw new NoSuchPackageError(packageId, packageVersion);
 }
 
 /**
@@ -226,24 +226,24 @@ export async function getVersionData(packageId: string): Promise<VersionData[]>;
  * 
  * @async
  * @param {string} packageId The identifier of the package to get the version data for.
- * @param {Version} version The version of the package to get the data for.
+ * @param {Version} packageVersion The version of the package to get the data for.
  * @returns {Promise<VersionData>} A promise which resolves to the version data for the specified version of the requested package.
  * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
  */
-export async function getVersionData(packageId: string, version: Version): Promise<VersionData>;
+export async function getVersionData(packageId: string, packageVersion: Version): Promise<VersionData>;
 
-export async function getVersionData(packageId: string, version?: Version): Promise<VersionData[] | VersionData> {
-  if (version) {
+export async function getVersionData(packageId: string, packageVersion?: Version): Promise<VersionData[] | VersionData> {
+  if (packageVersion) {
     const versionDoc = await VersionModel.findOne({
       packageId,
-      version: version.toString()
+      packageVersion: packageVersion.toString()
     })
       .lean()
       .select('-_id -__v')
       .exec();
     
     if (!versionDoc)
-      throw new NoSuchPackageError(packageId, version);
+      throw new NoSuchPackageError(packageId, packageVersion);
     return versionDoc;
   }
 
@@ -258,15 +258,15 @@ export async function getVersionData(packageId: string, version?: Version): Prom
  *
  * @async
  * @param {string} packageId The identifier of the package to update the incompatibilities of.
- * @param {Version} version The version of the package to update the incompatibilities of.
+ * @param {Version} packageVersion The version of the package to update the incompatibilities of.
  * @param {[string, string][]} incompatibilities The new incompatibilities of the package to overwrite.
  * @returns {Promise<void>} A promise which resolves if the incompatibilities are updated successfully.
  * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
  */
-export async function updateVersionIncompatibilities(packageId: string, version: Version, incompatibilities: [string, string][]): Promise<void> {
+export async function updateVersionIncompatibilities(packageId: string, packageVersion: Version, incompatibilities: [string, string][]): Promise<void> {
   const result = await VersionModel.updateOne({
     packageId,
-    version: version.toString()
+    packageVersion: packageVersion.toString()
   }, {
     $set: {
       incompatibilities
@@ -275,7 +275,7 @@ export async function updateVersionIncompatibilities(packageId: string, version:
     .exec();
   
   if (!result.modifiedCount)
-    throw new NoSuchPackageError(packageId, version);
+    throw new NoSuchPackageError(packageId, packageVersion);
 }
 
 /**
@@ -283,15 +283,15 @@ export async function updateVersionIncompatibilities(packageId: string, version:
  * 
  * @async
  * @param {string} packageId The identifier of the package to update the X-Plane selection of.
- * @param {Version} version The version of the package to update the X-Plane selection of.
+ * @param {Version} packageVersion The version of the package to update the X-Plane selection of.
  * @param {VersionSelection} xpSelection The new X-Plane selection of the package.
  * @returns {Promise<void>} A promise which resolves if the X-Plane selection is updated successfully.
  * @throws {NoSuchPackageError} Error thrown if the package does not exist, or the version does not exist.
  */
-export async function updateVersionXPSelection(packageId: string, version: Version, xpSelection: VersionSelection): Promise<void> {
+export async function updateVersionXPSelection(packageId: string, packageVersion: Version, xpSelection: VersionSelection): Promise<void> {
   const result = await VersionModel.updateOne({
     packageId,
-    version: version.toString()
+    packageVersion: packageVersion.toString()
   }, {
     $set: {
       xpSelection: xpSelection.toString()
@@ -300,7 +300,7 @@ export async function updateVersionXPSelection(packageId: string, version: Versi
     .exec();
   
   if (!result.modifiedCount)
-    throw new NoSuchPackageError(packageId, version);
+    throw new NoSuchPackageError(packageId, packageVersion);
 }
 
 /**
@@ -324,10 +324,10 @@ export async function packageIdExists(packageId: string): Promise<boolean> {
  * @param {Version} version The version to check for existence.
  * @returns {Promise<boolean>} A promise which resolves to true if the package already has the version, or false if the package or version does not exist.
  */
-export async function versionExists(packageId: string, version: Version): Promise<boolean> {
+export async function versionExists(packageId: string, packageVersion: Version): Promise<boolean> {
   return (await VersionModel.countDocuments({
     packageId,
-    version
+    packageVersion
   }).exec()) === 1;
 }
 
@@ -344,7 +344,7 @@ export async function packageNameExists(packageName: string): Promise<boolean> {
       $regex: packageName,
       $options: 'i'
     }
-  }).exec()) === 1;
+  }).exec()) > 0;
 }
 
 /**
@@ -414,4 +414,3 @@ export async function updateAuthorName(authorId: string, newName: string): Promi
     authorName: newName
   }).exec();
 }
-

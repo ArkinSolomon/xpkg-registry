@@ -133,6 +133,7 @@ const storeFile = path.resolve('./data.json');
 import packages from './routes/packages.js';
 import auth from './routes/auth.js';
 import account from './routes/account.js';
+import analytics from './routes/analytics.js';
 
 import * as packageDatabase from './database/packageDatabase.js';
 import { PackageType } from './database/models/packageModel.js';
@@ -141,8 +142,8 @@ import rateLimiter, { globalRateLimiter } from './util/rateLimiter.js';
 import authorizeRoute from './auth/authorizeRoute.js';
 import hasha from 'hasha';
 
-// Update this with all routes that require tokens
-const authRoutes = [
+// Update these arrays with all routes that are authorized
+const requiredAuthRoutes = [
   '/auth/issue',
   '/packages/upload',
   '/packages/new',
@@ -151,10 +152,14 @@ const authRoutes = [
   '/packages/retry',
   '/packages/incompatibilities',
   '/packages/xpselection',
-  '/account/*'
+  '/account/*',
+];
+const optionalAuthRoutes = [
+  '/analytics/*'
 ];
 
-app.use(authRoutes, authorizeRoute);
+app.use(requiredAuthRoutes, authorizeRoute());
+app.use(optionalAuthRoutes, authorizeRoute(true));
 
 app.use('*', globalRateLimiter());
 
@@ -164,12 +169,13 @@ app.use('/account/data', rateLimiter('account-data', 8, 5));
 app.use('/account/changename', rateLimiter('account-changename', 3, 5));
 app.use('/account/packages/*', rateLimiter('account-packages', 5, 3));
 
+app.use('/analytics/', rateLimiter('analytics', 6, 4)); // TODO: DOC THIS
+
 app.use('/auth/login', rateLimiter('auth-login', 5, 3));
 app.use('/auth/create', rateLimiter('auth-create', 5, 3));
 app.use('/auth/verify', rateLimiter('auth-verify', 3, 4));
 app.use('/auth/issue', rateLimiter('auth-issue', 3, 3));
 
-app.use('/packages', rateLimiter('packages', 4, 4));
 app.use('/packages/info', rateLimiter('packages-info', 10, 2));
 app.use('/packages/new', rateLimiter('packages-new', 3, 5));
 app.use('/packages/upload', rateLimiter('packages-upload', 3, 8));
@@ -177,8 +183,10 @@ app.use('/packages/retry', rateLimiter('packages-retry', 3, 8));
 app.use('/packages/description', rateLimiter('packages-description', 3, 4));
 app.use('/packages/incompatibilities', rateLimiter('packages-incompatibilities', 3, 4));
 app.use('/packages/xpselection', rateLimiter('packages-xpselection', 3, 4));
+app.use('/packages$', rateLimiter('packages', 4, 4));
 
 app.use('/account', account);
+app.use('/analytics', analytics);
 app.use('/auth', auth);
 app.use('/packages', packages);
 
@@ -222,7 +230,7 @@ async function updateData(): Promise<void> {
     pkgData.versions = (await packageDatabase.getVersionData(pkg.packageId))
       .filter(v => v.isPublic && v.status === VersionStatus.Processed)
       .map(v => ({
-        version: v.version,
+        version: v.packageVersion,
         dependencies: v.dependencies,
         incompatibilities: v.incompatibilities,
         xplaneSelection: v.xpSelection,

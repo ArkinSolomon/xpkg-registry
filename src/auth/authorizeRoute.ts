@@ -16,30 +16,42 @@ import { NextFunction, Request, Response } from 'express';
 import AuthToken from './authToken.js';
 import logger from '../logger.js';
 
-export default async function (req: Request, res: Response, next: NextFunction) {
-  try {
-    const token = req.headers.authorization;
-    if (typeof token !== 'string')
-
-      // Just throw and let exception handling redirect/notify
-      throw null;
-    
-    const authToken = await AuthToken.verify(token);
-    const author = await authToken.getAuthor();
-
-    if (author.session !== authToken.session)
-      throw null;
-    
-    else if (authToken.tokenSession) {
-      if (!author.tokens.find(t => t.tokenSession === authToken.tokenSession))
+/**
+ * Create a new instance of an authorization middleware. Sets the {@code req.user} property to the author's token, or returns 401 if {@code optional} is set to false.
+ * 
+ * @param {boolean} [optional=false] True if authorization is optional. Defaults to requiring authorizations.
+ * @returns {Function} Express middleware that authorizes users.
+ */
+export default function (optional = false) {
+  return async function (req: Request, res: Response, next: NextFunction) {
+    try {
+      const token = req.headers.authorization;
+      if (typeof token !== 'string')
+  
+        // Just throw and let exception handling redirect/notify
         throw null;
+      
+      const authToken = await AuthToken.verify(token);
+      const author = await authToken.getAuthor();
+  
+      if (author.session !== authToken.session)
+        throw null;
+      
+      else if (authToken.tokenSession) {
+        if (!author.tokens.find(t => t.tokenSession === authToken.tokenSession))
+          throw null;
+      }
+  
+      req.user = authToken;
+  
+      next();
+    } catch (_) {
+      if (optional) {
+        logger.trace('Optional authorization, will go to next middleware');
+        return next();
+      }
+      logger.info(`Unauthorized authorization attempt from ${req.ip}`);
+      return res.sendStatus(401);
     }
-
-    req.user = authToken;
-
-    next();
-  } catch (_) {
-    logger.info(`Unauthorized authorization attempt from ${req.ip}`);
-    return res.sendStatus(401);
-  }
+  };
 }

@@ -156,7 +156,7 @@ const tokenInformationSchema = new Schema<TokenInformation>({
     type: Number,
     required: true
   }
-}, { _id : false });
+});
 
 const authorSchema = new Schema<DatabaseAuthor>({
   authorId: {

@@ -38,13 +38,13 @@ export enum VersionStatus {
  * 
  * @typedef {Object} VersionData
  * @property {string} packageId The identifier of the package.
- * @property {string} version The semantic version string of the package.
+ * @property {string} packageVersion The version string of the package.
  * @property {string} hash The hexadecimal hash of the package files.
  * @property {boolean} isPublic True if the version is public.
  * @property {boolean} isStored True if the version is stored.
  * @property {string} loc The URL from which to download the package version.
  * @property {string} [privateKey] The private key of the version, if the version is private.
- * @property {number} installs The number of installs for this version.
+ * @property {number} downloads The number of times this version has been downloaded overall.
  * @property {Date} uploadDate The upload time of the package.
  * @property {VersionStatus} VersionStatus The status of the package.
  * @property {[string][string][]} dependencies The dependencies of the version.
@@ -55,13 +55,13 @@ export enum VersionStatus {
  */
 export type VersionData = {
   packageId: string;
-  version: string;
+  packageVersion: string;
   hash: string;
   isPublic: boolean;
   isStored: boolean;
   loc?: string;
   privateKey?: string;
-  installs: number;
+  downloads: number;
   uploadDate: Date;
   status: VersionStatus;
   dependencies: [string, string][];
@@ -76,11 +76,13 @@ import mongoose, { Schema } from 'mongoose';
 const versionSchema = new Schema<VersionData>({
   packageId: {
     type: String,
-    required: true
+    required: true,
+    index: true
   },
-  version: {
+  packageVersion: {
     type: String,
-    required: true
+    required: true,
+    index: true
   },
   hash: {
     type: String,
@@ -108,7 +110,7 @@ const versionSchema = new Schema<VersionData>({
       return !this.isPublic && this.isStored;
     },
   },
-  installs: {
+  downloads: {
     type: Number,
     required: true,
     default: 0

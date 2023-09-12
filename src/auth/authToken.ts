@@ -33,7 +33,8 @@ export enum TokenPermission {
   ViewPackages = 1 << 9,
   ViewResources = 1 << 10,
   UpdateVersionDataAnyPackage = 1 << 11,
-  UpdateVersionDataSpecificPackages = 1 << 12
+  UpdateVersionDataSpecificPackages = 1 << 12,
+  ViewAnalytics = 1 << 13
 }
 
 /**

@@ -43,11 +43,11 @@ export type JobData = {
  * 
  * @typedef {Object} PackagingInfo
  * @property {string} packageId The id of the package being processed.
- * @property {string} version The version of the package being processed.
+ * @property {string} packageVersion The version of the package being processed.
  */
 export type PackagingInfo = {
   packageId: string;
-  version: string;
+  packageVersion: string;
 }
 
 /**
@@ -117,7 +117,9 @@ export default class JobsServiceManager {
         return;
       }
 
-      const hash = hasha(trustKey, { algorithm: 'sha256' });
+      const hasher = new Bun.CryptoHasher('sha256');
+      hasher.update(trustKey);
+      const hash = hasher.digest('hex');
       if (hash !== process.env.SERVER_TRUST_HASH) {
         this._logger.error('Jobs service not trusted, invalid server trust');
         this._socket.disconnect();
@@ -193,6 +195,8 @@ export default class JobsServiceManager {
     if (!this._authorized)
       this._logger.trace('Waiting for authorization with jobs service');
     return new Promise(resolve => {
+      if (this._authorized)
+        return resolve();
       const intervalId = setInterval(() => {
         if (this._authorized) {
           clearInterval(intervalId);

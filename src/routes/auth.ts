@@ -25,12 +25,11 @@ export type PasswordResetPayload = {
   session: string;
 }
 
-import bcrypt from 'bcrypt';
-import { Router } from 'express';
+import { Response, Router } from 'express';
 import * as validators from '../util/validators.js';
 import * as authorDatabase from '../database/authorDatabase.js';
 import { getAuthorPackages } from '../database/packageDatabase.js';
-import { decode } from '../util/jwtPromise.js';
+import { EMAIL_VERIFY_SECRET, decode } from '../util/jwtPromise.js';
 import logger from '../logger.js';
 import { nanoid } from 'nanoid/async';
 import { AccountValidationPayload } from '../database/models/authorModel.js';
@@ -56,7 +55,7 @@ route.post('/create',
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
-      routeLogger.info(`Validation failed with message: ${message}`);
+      routeLogger.trace(`Validation failed with message: ${message}`);
       return res
         .status(400)
         .send(message);
@@ -71,7 +70,7 @@ route.post('/create',
 
     try {
       if (!(await verifyRecaptcha(validation, req.ip || 'unknown'))) {
-        routeLogger.info('ReCAPTCHA validation failed');
+        routeLogger.trace('ReCAPTCHA validation failed');
         return res.sendStatus(418);
       } 
 
@@ -81,13 +80,16 @@ route.post('/create',
       ]);
 
       if (emailInUse || nameInUse) {
-        routeLogger.info(`${emailInUse ? 'Email' : 'Name'} already in use`);
+        routeLogger.trace(`${emailInUse ? 'Email' : 'Name'} already in use`);
         return res
           .status(403)
           .send(emailInUse ? 'email' : 'name');
       }
 
-      const hash = await bcrypt.hash(password, 12);
+      const hash = await Bun.password.hash(password, {
+        algorithm: 'bcrypt',
+        cost: 12
+      });
       const newAuthorId = await nanoid(8) + Math.floor(Date.now() / 1000);
       const author =  await authorDatabase.createAuthor(
         newAuthorId,
@@ -155,7 +157,7 @@ route.post('/login',
         authorName: author.authorName
       });
 
-      const isValid = await bcrypt.compare(password, author.password);
+      const isValid = await Bun.password.verify(password, author.password);
       if (!isValid) {
         routeLogger.info('Wrong password');
         return res.sendStatus(401);
@@ -201,7 +203,7 @@ route.post('/verify/:verificationToken',
 
     let authorId;
     try {
-      const payload = await decode(verificationToken, process.env.EMAIL_VERIFY_SECRET as string) as AccountValidationPayload;
+      const payload = await decode(verificationToken, EMAIL_VERIFY_SECRET) as AccountValidationPayload;
       authorId = payload.id;
     } catch {
       routeLogger.info(`Invalid token in verification request from ${req.ip}`);

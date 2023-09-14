@@ -48,7 +48,7 @@ if (isMainThread) {
 }
 const upload = multer({ dest: UPLOAD_PATH });
 
-const FILE_PROCESSOR_WORKER_PATH = path.resolve('.', 'dist', 'workers', 'fileProcessor.js');
+const FILE_PROCESSOR_WORKER_PATH = path.resolve('.', 'src', 'workers', 'fileProcessor.ts');
 
 export const unzippedFilesLocation = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped');
 export const xpkgFilesLocation = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files');
@@ -344,10 +344,6 @@ route.post('/upload',
           routeLogger.error('Worker not started, failed with message: ' + v);
         }
       });
-
-      worker.on('error', err => {
-        routeLogger.error(err, 'Error while processing package');
-      });
     } catch (e) {
       if (e instanceof InvalidListError) {
         routeLogger.trace(e, 'Invalid list');
@@ -453,10 +449,6 @@ route.post('/retry',
           routeLogger.trace('Package processing started');
           res.sendStatus(204);
         }
-      });
-
-      worker.on('error', err => {
-        routeLogger.error(err, 'Error while processing package');
       });
     } catch (e) {
       if (e instanceof NoSuchPackageError) {

@@ -30,7 +30,6 @@ export type DownloadEntry = {
 }
 
 import mongoose, { Schema } from 'mongoose';
-import { dateToUTCHour } from '../../util/dateUtil.js';
 
 const downloadsSchema = new Schema<DownloadEntry>({
   packageId: {
@@ -58,22 +57,5 @@ const downloadsSchema = new Schema<DownloadEntry>({
 
 const downloadsDB = mongoose.connection.useDb('packages');
 const DownloadsModel = downloadsDB.model<DownloadEntry>('downloads', downloadsSchema);
-
-// let currentDate = dateToUTCHour(new Date(Date.now() - 5 * 7 * 24 * 60 * 60 * 1000));
-// const docs: DownloadEntry[] = [];
-// while (currentDate.valueOf() <= Date.now()) {
-//   if (Math.random() <= 0.75) {
-//     const downloads = Math.floor(Math.random() * 100 + 1);
-//     docs.push({
-//       packageId: 'example.package1',
-//       packageVersion: '1.0.0',
-//       timestamp: currentDate,
-//       downloads
-//     });
-//   } 
-//   currentDate = dateToUTCHour(new Date(currentDate.valueOf() + 60 * 60 * 1000 + 1));
-// }
-
-// DownloadsModel.insertMany(docs);
 
 export default DownloadsModel;

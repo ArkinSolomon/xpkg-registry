@@ -52,9 +52,8 @@ type FullRegistryData = {
 import dotenv from 'dotenv';
 dotenv.config();
 
-import Express from 'express';
+import Express, { Request } from 'express';
 import fs from 'fs/promises';
-import path from 'path';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import { pinoHttp } from 'pino-http';
@@ -68,8 +67,8 @@ if (!process.env.NODE_ENV) {
 }
 
 const alphaNumericNanoid = customAlphabet('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890');
-const SERVER_ID = process.env.SERVER_ID ?? `registry-${process.env.NODE_ENV}-${alphaNumericNanoid(32)}`;
-const serverIdHash = hasha(SERVER_ID, {encoding: 'hex', algorithm: 'sha1'});
+export const SERVER_ID = process.env.SERVER_ID ?? `registry-${process.env.NODE_ENV}-${alphaNumericNanoid(32)}`;
+const serverIdHash = Bun.hash(SERVER_ID);
 
 logger.info({
   NODE_ENV: process.env.NODE_ENV,
@@ -106,20 +105,20 @@ app.use(function (_, res, next) {
 });
 
 let currentRequest = 0;
-const maxRequest = 9999;
+const maxRequest = 99999999;
 app.use(pinoHttp({
   logger,
   genReqId: function (_, res): string {
     if (currentRequest >= maxRequest)
       currentRequest = 0;
 
-    const requestId = serverIdHash + Date.now().toString(16) + currentRequest.toString().padStart(4, '0') + alphaNumericNanoid(8);
+    const requestId = serverIdHash + Date.now().toString(16) + currentRequest.toString().padStart(8, '0') + alphaNumericNanoid(16);
     res.setHeader('X-Request-Id', requestId);
     ++currentRequest;
     return requestId;
   },
   serializers: {
-    req: req => ({
+    req: (req: Request) => ({
       id: req.id,
       method: req.method,
       url: req.url,
@@ -128,7 +127,7 @@ app.use(pinoHttp({
   }
 }));
 
-const storeFile = path.resolve('./data.json');
+const storeFile = Bun.file('data.json', { type: 'application/json' });
 
 import packages from './routes/packages.js';
 import auth from './routes/auth.js';
@@ -140,7 +139,6 @@ import { PackageType } from './database/models/packageModel.js';
 import { VersionStatus } from './database/models/versionModel.js';
 import rateLimiter, { globalRateLimiter } from './util/rateLimiter.js';
 import authorizeRoute from './auth/authorizeRoute.js';
-import hasha from 'hasha';
 
 // Update these arrays with all routes that are authorized
 const requiredAuthRoutes = [
@@ -240,10 +238,10 @@ async function updateData(): Promise<void> {
       data.packages.push(pkgData);
   }
 
-  await fs.writeFile(storeFile, JSON.stringify(data), 'utf-8');
+  data.generated = new Date().toISOString();
+  await Bun.write(storeFile, JSON.stringify(data));
   const timeTaken = Date.now() - startTime;
   logger.trace(`Package data updated, ${data.packages.length || 'no'} package${data.packages.length == 1 ? '' : 's'}, took ${timeTaken}ms`);
-  data.generated = new Date().toISOString();
 }
 
 await updateData();

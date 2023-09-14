@@ -201,11 +201,11 @@ export async function emailExists(email: string): Promise<boolean> {
  * @returns {Promise<boolean>} A promise which resolves to true if the name is already in use.
  */
 export async function nameExists(authorName: string): Promise<boolean> {
-  return !!await AuthorModel.exists({
+  return !!(await AuthorModel.exists({
     authorName: {
       $regex: new RegExp(`^${authorName}$`, 'i')
     }
-  }).exec();
+  }).exec());
 }
 
 /**

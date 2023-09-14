@@ -226,11 +226,12 @@ const authorSchema = new Schema<DatabaseAuthor>({
       return await token.sign('6h');
     },
     createVerifyToken: async function(): Promise<string> {
-      return jwtPromise.sign(<AccountValidationPayload>{
-        id: this.authorId
-      },
-        process.env.EMAIL_VERIFY_SECRET as string,
-        { expiresIn: '24h' }
+      return jwtPromise.sign(
+        <AccountValidationPayload>{
+          id: this.authorId
+        },
+        jwtPromise.EMAIL_VERIFY_SECRET,
+        '24h',
       );
     },
     changeName: async function(newName: string): Promise<void> {

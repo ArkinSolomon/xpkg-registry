@@ -109,15 +109,11 @@ route.get('/:packageId/:packageVersion',
           return res.sendStatus(404);
         }
       }
-
-      routeLogger.trace({
-        after: after.toUTCString(),
-        before: before.toUTCString()
-      }, 'Getting analytics...');
-
+      const analytics = await analyticsDatabase.getVersionAnalyticsData(packageId, packageVersion, after, before);
+      logger.trace('Got analytics');
       res
         .status(200)
-        .json(await analyticsDatabase.getVersionAnalyticsData(packageId, packageVersion, after, before));
+        .json(analytics);
     } catch (e) {
       if (e instanceof NoSuchPackageError) {
         routeLogger.trace(e, 'Attempted to get version data for non-existent package');

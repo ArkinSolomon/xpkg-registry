@@ -59,15 +59,8 @@ export type AuthTokenPayload = {
   tokenSession?: string;
 }
 
-import logger from '../logger.js';
 import * as jwtPromise from '../util/jwtPromise.js';
 import { getAuthorDoc } from '../database/authorDatabase.js';
-
-const AUTH_SECRET = process.env.AUTH_SECRET;
-if (!AUTH_SECRET) {
-  logger.fatal('No authorization token secret provided (AUTH_SECRET)');
-  process.exit(1);
-}
 
 /**
  * A new token used for authorization.
@@ -157,7 +150,7 @@ export default class AuthToken {
    * @returns {Promise<AuthToken>} An authorization token instance.
    */
   static async verify(token: string): Promise<AuthToken> {
-    const payload = await jwtPromise.decode(token, AUTH_SECRET as string);
+    const payload = await jwtPromise.decode(token, jwtPromise.AUTH_SECRET);
     return new AuthToken(payload as AuthTokenPayload);
   }
 
@@ -169,10 +162,7 @@ export default class AuthToken {
    * @returns {Promise<string>} A promise which resolves to the JWT token string.
    */
   async sign(expires: string): Promise<string> {
-    return jwtPromise.sign(this._payload, AUTH_SECRET as string, {
-      expiresIn: expires,
-      algorithm: 'HS384'
-    });
+    return jwtPromise.sign(this._payload, jwtPromise.AUTH_SECRET, expires);
   }
 
   /**

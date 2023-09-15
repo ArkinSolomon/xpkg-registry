@@ -281,10 +281,10 @@ try {
     ]);
     logger.trace('Deleted xpkg file, updated database, and notified author');
     process.exit(0);
-  } 
+  }
   hasUsedStorage = true;
   logger.trace('Consumed storage');
-
+  
   logger.trace('Fetching namespace from Oracle Cloud');
   const { value: namespace } = await client.getNamespace({});
 

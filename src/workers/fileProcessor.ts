@@ -121,7 +121,7 @@ const jobData: JobData = {
   jobType: JobType.Packaging,
   info: <PackagingInfo>{
     packageId,
-    version: packageVersion.toString()
+    packageVersion: packageVersion.toString()
   }
 };
 const jobsService = new JobsServiceManager(jobData, logger, abort);
@@ -281,10 +281,10 @@ try {
     ]);
     logger.trace('Deleted xpkg file, updated database, and notified author');
     process.exit(0);
-  } 
+  }
   hasUsedStorage = true;
   logger.trace('Consumed storage');
-
+  
   logger.trace('Fetching namespace from Oracle Cloud');
   const { value: namespace } = await client.getNamespace({});
 
@@ -356,18 +356,22 @@ try {
   await jobsService.completed();
   logger.info('Worker thread completed');
 } catch (e) {
+  if (jobsService.aborted)
+    logger.warn(e, 'Error occured during file processing after job abortion');
+  else 
+    logger.error(e, 'Error occured during file processing');
+
   if (hasUsedStorage) {
-    logger.warn('Error occured after storage claimed, attempting to free');
-    await author.freeStorage(fileSize);
+    logger.info('Error occured after storage claimed, attempting to free');
+    await author.freeStorage(fileSize).catch();
     logger.trace('Freed claimed storage');
   }
 
-  if (jobsService.aborted)
-    logger.warn(e, 'Error occured after abortion');
-  else {
-    logger.error(e);
-    throw e;
-  }
+  await Promise.all([
+    packageDatabase.updateVersionStatus(packageId, packageVersion, VersionStatus.Aborted),
+    sendFailureEmail(VersionStatus.FailedServer),
+    jobsService.completed()
+  ]);
 }
 
 /**

@@ -56,7 +56,7 @@ route.post('/create',
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
-      routeLogger.info(`Validation failed with message: ${message}`);
+      routeLogger.trace(`Validation failed with message: ${message}`);
       return res
         .status(400)
         .send(message);
@@ -71,7 +71,7 @@ route.post('/create',
 
     try {
       if (!(await verifyRecaptcha(validation, req.ip || 'unknown'))) {
-        routeLogger.info('ReCAPTCHA validation failed');
+        routeLogger.trace('ReCAPTCHA validation failed');
         return res.sendStatus(418);
       } 
 

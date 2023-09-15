@@ -43,11 +43,11 @@ export type JobData = {
  * 
  * @typedef {Object} PackagingInfo
  * @property {string} packageId The id of the package being processed.
- * @property {string} version The version of the package being processed.
+ * @property {string} packageVersion The version of the package being processed.
  */
 export type PackagingInfo = {
   packageId: string;
-  version: string;
+  packageVersion: string;
 }
 
 /**
@@ -70,7 +70,6 @@ import { Socket, io } from 'socket.io-client';
 export default class JobsServiceManager {
 
   private _socket: Socket;
-  private _data: JobData;
   private _logger: Logger;
 
   private _onAbort: () => void;
@@ -99,7 +98,6 @@ export default class JobsServiceManager {
   constructor(jobData: JobData, logger: Logger, onAbort: () => Promise<void>) {
     this._onAbort = onAbort;
     this._logger = logger;
-    this._data = jobData;
     this._socket = io(`https://${process.env.JOBS_SERVICE_ADDR}/`, {
       reconnectionAttempts: Infinity,
       reconnectionDelay: 5000,
@@ -190,8 +188,9 @@ export default class JobsServiceManager {
    * @returns {Promise<void>} A promise which returns once the method detects that we have been authorized with the jobs service.
    */
   waitForAuthorization(): Promise<void> {
-    if (!this._authorized)
-      this._logger.trace('Waiting for authorization with jobs service');
+    if (this._authorized)
+      return Promise.resolve();
+    this._logger.trace('Waiting for authorization with jobs service');
     return new Promise(resolve => {
       const intervalId = setInterval(() => {
         if (this._authorized) {

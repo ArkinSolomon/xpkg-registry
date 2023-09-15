@@ -52,7 +52,7 @@ type FullRegistryData = {
 import dotenv from 'dotenv';
 dotenv.config();
 
-import Express from 'express';
+import Express, { Request } from 'express';
 import fs from 'fs/promises';
 import path from 'path';
 import bodyParser from 'body-parser';
@@ -119,7 +119,7 @@ app.use(pinoHttp({
     return requestId;
   },
   serializers: {
-    req: req => ({
+    req: (req: Request) => ({
       id: req.id,
       method: req.method,
       url: req.url,
@@ -240,10 +240,10 @@ async function updateData(): Promise<void> {
       data.packages.push(pkgData);
   }
 
+  data.generated = new Date().toISOString();
   await fs.writeFile(storeFile, JSON.stringify(data), 'utf-8');
   const timeTaken = Date.now() - startTime;
   logger.trace(`Package data updated, ${data.packages.length || 'no'} package${data.packages.length == 1 ? '' : 's'}, took ${timeTaken}ms`);
-  data.generated = new Date().toISOString();
 }
 
 await updateData();

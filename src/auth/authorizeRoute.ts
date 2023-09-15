@@ -45,12 +45,12 @@ export default function (optional = false) {
       req.user = authToken;
   
       next();
-    } catch (_) {
+    } catch (e) {
       if (optional) {
         logger.trace('Optional authorization, will go to next middleware');
         return next();
       }
-      logger.info(`Unauthorized authorization attempt from ${req.ip}`);
+      logger.info(e, `Unauthorized authorization attempt from ${req.ip}`);
       return res.sendStatus(401);
     }
   };

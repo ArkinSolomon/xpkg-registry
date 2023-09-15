@@ -344,10 +344,6 @@ route.post('/upload',
           routeLogger.error('Worker not started, failed with message: ' + v);
         }
       });
-
-      worker.on('error', err => {
-        routeLogger.error(err, 'Error while processing package');
-      });
     } catch (e) {
       if (e instanceof InvalidListError) {
         routeLogger.trace(e, 'Invalid list');
@@ -453,10 +449,6 @@ route.post('/retry',
           routeLogger.trace('Package processing started');
           res.sendStatus(204);
         }
-      });
-
-      worker.on('error', err => {
-        routeLogger.error(err, 'Error while processing package');
       });
     } catch (e) {
       if (e instanceof NoSuchPackageError) {

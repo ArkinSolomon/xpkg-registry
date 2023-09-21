@@ -16,7 +16,7 @@
 import Version from '../util/version.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import PackageModel, { PackageData, PackageType } from './models/packageModel.js';
-import VersionModel, { VersionData, VersionStatus } from './models/versionModel.js';
+import VersionModel, { PlatformSupport, VersionData, VersionStatus } from './models/versionModel.js';
 import VersionSelection from '../util/versionSelection.js';
 
 /**
@@ -57,20 +57,22 @@ export async function addPackage(packageId: string, packageName: string, authorI
  * @param {[string][string][]} [dependencies] The dependencies of the version.
  * @param {[string][string][]} [incompatibilities] The incompatibilities of the version.
  * @param {VersionSelection} xpSelection The X-Plane selection.
+ * @param {PlatformSupport} platforms The platform support for the version.
  * @returns {Promise<void>} A promise which resolves if the operation is completed successfully, or rejects if it does not.
  */
 export async function addPackageVersion(packageId: string, packageVersion: Version, accessConfig: {
     isPublic: boolean;
     isStored: boolean;
     privateKey?: string;
-  }, dependencies: [string, string][], incompatibilities: [string, string][], xpSelection: VersionSelection): Promise<void> {
+}, dependencies: [string, string][], incompatibilities: [string, string][], xpSelection: VersionSelection, platforms: PlatformSupport): Promise<void> {
   const newVersion = new VersionModel({
     packageId,
     packageVersion: packageVersion.toString(),
     ...accessConfig,
     dependencies,
     incompatibilities,
-    xpSelection
+    xpSelection,
+    platforms
   });
 
   await newVersion.save();
@@ -220,7 +222,6 @@ export async function getPackageData(packageId?: string): Promise<PackageData[]|
  */
 export async function getVersionData(packageId: string): Promise<VersionData[]>;
 
-
 /**
  * Get the data for a specific version of a package.
  * 
@@ -248,6 +249,22 @@ export async function getVersionData(packageId: string, packageVersion?: Version
   }
 
   return VersionModel.find({ packageId })
+    .lean()
+    .select('-_id -__v')
+    .exec();
+}
+
+/**
+ * Get the version data for all versions of any package that are both public and processed.
+ * 
+ * @async
+ * @returns {Promise<VersionData[]>} An array of all of the version data for public versions.
+ */
+export async function allPublicProcessedVersions(): Promise<VersionData[]> {
+  return await VersionModel.find({
+    isPublic: true,
+    status: VersionStatus.Processed
+  })
     .lean()
     .select('-_id -__v')
     .exec();

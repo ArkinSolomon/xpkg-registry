@@ -255,6 +255,11 @@ route.post('/issue',
     max: 32
   }),
   validators.asPartialXpkgPackageId(check('updateVersionDataPackages.*').notEmpty()),
+
+  body('viewAnalyticsPackages').default([]).isArray({
+    max: 32
+  }),
+  validators.asPartialXpkgPackageId(check('viewAnalyticsPackages.*').notEmpty()),
   async (req, res) => {
     const token = req.user as AuthToken;
 
@@ -292,7 +297,8 @@ route.post('/issue',
       permissions,
       versionUploadPackages: unprocessedVersionUploadPackages,
       descriptionUpdatePackages: unprocessedDescriptionUpdatePackages,
-      updateVersionDataPackages: unprocessedUpdateVersionDataPackages
+      updateVersionDataPackages: unprocessedUpdateVersionDataPackages,
+      viewAnalyticsPackages: unprocessedViewAnalyticsPackages
     } = matchedData(req) as {
       expires: number;
       name: string;
@@ -301,6 +307,7 @@ route.post('/issue',
       versionUploadPackages: string[];
       descriptionUpdatePackages: string[];
       updateVersionDataPackages: string[];
+      viewAnalyticsPackages: string[];
     };
 
     if (author.hasTokenName(name)) {
@@ -315,6 +322,7 @@ route.post('/issue',
     const hasSpecificDescriptionUpdatePermission = (permissions & TokenPermission.UpdateDescriptionSpecificPackages) > 0;
     const hasSpecificVersionUploadPermission = (permissions & TokenPermission.UploadVersionSpecificPackages) > 0;
     const hasSpecificUpdateVersionDataPermission = (permissions & TokenPermission.UploadVersionSpecificPackages) > 0;
+    const hasSpecificViewAnalyticsPermission = (permissions & TokenPermission.ViewAnalyticsSpecificPackages) > 0;
 
     if ((permissions & TokenPermission.UpdateDescriptionAnyPackage) > 0 && hasSpecificDescriptionUpdatePermission) {
       routeLogger.info('Permissions UpdateDescriptionAnyPackage and UpdateDescriptionSpecificPackage are both provided (invalid_perm)');
@@ -346,6 +354,16 @@ route.post('/issue',
       return res
         .status(400)
         .send('invalid_perm');
+    }else if ((permissions & TokenPermission.ViewAnalyticsAnyPackage) > 0 && hasSpecificViewAnalyticsPermission) {
+      routeLogger.info('Permissions ViewAnalyticsAnyPackage and ViewAnalyticsSpecificPackages are both provided (invalid_perm)');
+      return res
+        .status(400)
+        .send('invalid_perm');
+    } else if (hasSpecificViewAnalyticsPermission && (!unprocessedViewAnalyticsPackages || !(unprocessedViewAnalyticsPackages as string[]).length)) {
+      routeLogger.info('ViewAnalyticsSpecificPackages permission provided, but no array was given (invalid_perm)');
+      return res
+        .status(400)
+        .send('invalid_perm');
     }
 
     routeLogger.trace('Permissions checks passed');
@@ -359,9 +377,10 @@ route.post('/issue',
       const descriptionUpdatePackages = processPackageIdList(unprocessedDescriptionUpdatePackages, authorPackages);
       const versionUploadPackages = processPackageIdList(unprocessedVersionUploadPackages, authorPackages);
       const updateVersionDataPackages = processPackageIdList(unprocessedUpdateVersionDataPackages, authorPackages);
+      const viewAnalyticsPackages = processPackageIdList(unprocessedViewAnalyticsPackages, authorPackages);
 
-      if (!descriptionUpdatePackages || !versionUploadPackages || !updateVersionDataPackages) {
-        routeLogger.info('Package id lists failed to process (invalid_arr)');
+      if (!descriptionUpdatePackages || !versionUploadPackages || !updateVersionDataPackages || !viewAnalyticsPackages) {
+        routeLogger.info('One or more package identifier lists failed to process (invalid_arr)');
         return res
           .status(400)
           .send('invalid_arr');
@@ -369,9 +388,11 @@ route.post('/issue',
 
       routeLogger.trace('Processed packages');
 
-      if (!hasSpecificDescriptionUpdatePermission && descriptionUpdatePackages.length ||
-      !hasSpecificVersionUploadPermission && versionUploadPackages.length || 
-      !hasSpecificUpdateVersionDataPermission && updateVersionDataPackages.length
+      if (
+        !hasSpecificDescriptionUpdatePermission && descriptionUpdatePackages.length ||
+        !hasSpecificVersionUploadPermission && versionUploadPackages.length || 
+        !hasSpecificUpdateVersionDataPermission && updateVersionDataPackages.length ||
+        !hasSpecificViewAnalyticsPermission && viewAnalyticsPackages.length
       ) {
         routeLogger.info('Specific permissions not granted, but specific array was recieved (extra_arr)');
         return res
@@ -387,7 +408,8 @@ route.post('/issue',
         permissions,
         descriptionUpdatePackages,
         versionUploadPackages,
-        updateVersionDataPackages
+        updateVersionDataPackages,
+        viewAnalyticsPackages
       });
       routeLogger.trace('Token information generated');
 

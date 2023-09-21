@@ -220,7 +220,8 @@ const authorSchema = new Schema<DatabaseAuthor>({
         permissions: TokenPermission.Admin,
         versionUploadPackages: [],
         descriptionUpdatePackages: [],
-        updateVersionDataPackages: []
+        updateVersionDataPackages: [],
+        viewAnalyticsPackages: []
       });
 
       return await token.sign('6h');

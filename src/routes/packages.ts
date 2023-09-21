@@ -50,8 +50,8 @@ const upload = multer({ dest: UPLOAD_PATH });
 
 const FILE_PROCESSOR_WORKER_PATH = path.resolve('.', 'dist', 'workers', 'fileProcessor.js');
 
-export const unzippedFilesLocation = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'unzipped');
-export const xpkgFilesLocation = path.join('/Users', 'arkinsolomon', 'Desktop', 'X_PKG_TMP_DIR', 'xpkg-files');
+export const unzippedFilesLocation = path.join(os.tmpdir(), 'xpkg', 'unzipped');
+export const xpkgFilesLocation = path.join(os.tmpdir(), 'xpkg', 'xpkg-files');
 
 const privateKeyNanoid = customAlphabet('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789');
 
@@ -228,6 +228,9 @@ route.post('/upload',
       min: 0,
       max: 128
     }).withMessage('bad_inc_arr'),
+  body('supportsMacOS').isBoolean().withMessage('not_bool'),
+  body('supportsWindows').isBoolean().withMessage('not_bool'),
+  body('supportsLinux').isBoolean().withMessage('not_bool'),
   async (req, res) => {
     const file = req.file;
     const token = req.user as AuthToken;
@@ -267,20 +270,49 @@ route.post('/upload',
       isStored: boolean;
       dependencies: [string, string][];
       incompatibilities: [string, string][];
+      supportsMacOS: boolean;
+      supportsWindows: boolean;
+      supportsLinux: boolean;
     };
     const { packageId, packageVersion, xpSelection } = data;
-    let { incompatibilities, dependencies, isPublic, isPrivate, isStored } = data;
+    let {
+      incompatibilities,
+      dependencies,
+      isPublic,
+      isPrivate,
+      isStored,
+      supportsMacOS,
+      supportsWindows,
+      supportsLinux
+    } = data;
 
     // This work around fixes that express validator sometimes considers these as strings instead of booleans
-    isPublic = typeof isPublic === 'string' ? isPublic === 'true' : isPublic;
-    isPrivate = typeof isPrivate === 'string' ? isPrivate === 'true' : isPrivate;
-    isStored = typeof isStored === 'string' ? isStored === 'true' : isStored;
-
+    isPublic = typeof isPublic !== 'boolean' ? isPublic === 'true' : isPublic;
+    isPrivate = typeof isPrivate !== 'boolean' ? isPrivate === 'true' : isPrivate;
+    isStored = typeof isStored !== 'boolean' ? isStored === 'true' : isStored;
+    supportsMacOS = typeof supportsMacOS !== 'boolean' ? supportsMacOS === 'true' : supportsMacOS;
+    supportsWindows = typeof supportsWindows !== 'boolean' ? supportsWindows === 'true' : supportsWindows;
+    supportsLinux = typeof supportsLinux !== 'boolean' ? supportsLinux === 'true' : supportsLinux;
+    
     if (!file) {
       routeLogger.trace('No file uploaded (no_file)');
       return res
         .status(400)
         .send('no_file');
+    }
+
+    if (isPublic !== !isPrivate || isPublic && !isStored) {
+      routeLogger.trace('Invalid access config (invalid_access_config)');
+      return res
+        .status(400)
+        .send('invalid_access_config');
+    }
+
+    if (!(supportsMacOS || supportsWindows || supportsLinux)) {
+      routeLogger.trace('Must support one platform (plat_supp)');
+      return res
+        .status(400)
+        .send('plat_supp');
     }
 
     if (!token.canUploadPackageVersion(packageId)) {
@@ -307,12 +339,18 @@ route.post('/upload',
           .status(400)
           .send('version_exists');
       }
+      
+      const platforms = {
+        macOS: supportsMacOS,
+        windows: supportsWindows,
+        linux: supportsLinux
+      };
 
       await packageDatabase.addPackageVersion(packageId, packageVersion, {
         isPublic: isPublic,
         isStored: isStored,
         privateKey: !isPublic && isStored ? await privateKeyNanoid(32) : void (0)
-      }, dependencies, incompatibilities, xpSelection);
+      }, dependencies, incompatibilities, xpSelection, platforms);
 
       routeLogger.trace('Registered package version in database');
 
@@ -330,7 +368,8 @@ route.post('/upload',
           isPrivate,
           isStored
         },
-        xpSelection: xpSelection.toString()
+        xpSelection: xpSelection.toString(),
+        platforms
       };
 
       res.removeListener('finish', fileDeleteCb);
@@ -440,7 +479,8 @@ route.post('/retry',
           isPrivate: !versionData.isPublic,
           isStored: versionData.isStored,
         },
-        xpSelection: versionData.xpSelection
+        xpSelection: versionData.xpSelection,
+        platforms: versionData.platforms
       };
 
       const worker = new Worker(FILE_PROCESSOR_WORKER_PATH, { workerData: fileProcessorData });

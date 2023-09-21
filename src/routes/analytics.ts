@@ -19,7 +19,7 @@ import * as validators from '../util/validators.js';
 import { Router } from 'express';
 import Version from '../util/version.js';
 import { dateToUTCHour } from '../util/dateUtil.js';
-import AuthToken, { TokenPermission } from '../auth/authToken.js';
+import AuthToken from '../auth/authToken.js';
 import * as packageDatabase from '../database/packageDatabase.js';
 import * as analyticsDatabase from '../database/analyticsDatabase.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
@@ -31,7 +31,7 @@ const ONE_DAY_MS = 24 * ONE_HOUR_MS;
 const THIRTY_DAYS_MS = 30 * ONE_DAY_MS;
 
 route.get('/:packageId/:packageVersion',
-  validators.asPartialXpkgPackageId(param('packageId')),
+  validators.isPartialPackageId(param('packageId')),
   validators.asVersion(param('packageVersion')),
   query('after').trim().notEmpty().isInt({
     min: 1672531200000 // Sun, 01 Jan 2023 00:00:00 GMT
@@ -66,7 +66,7 @@ route.get('/:packageId/:packageVersion',
     const { packageId, packageVersion } = validatedFields ;
 
     let after = new Date(validatedFields.after ?? Date.now() - ONE_DAY_MS);
-    let before = validatedFields.before ? new Date(validatedFields.before) : new Date();
+    let before = validatedFields.before ? new Date(validatedFields.before) : new Date(after.getTime() + ONE_DAY_MS);
 
     after = dateToUTCHour(after);
     before = dateToUTCHour(before);
@@ -91,7 +91,7 @@ route.get('/:packageId/:packageVersion',
     if (before.valueOf() - after.valueOf() > THIRTY_DAYS_MS) {
       routeLogger.info({
         difference: `${difference}ms`,
-      }, 'Time difference is greater than 30 day (long_diff)');
+      }, 'Time difference is greater than 30 days (long_diff)');
       return res
         .status(400)
         .send('long_diff');
@@ -109,7 +109,7 @@ route.get('/:packageId/:packageVersion',
       if (!versionData.isPublic && !authorHasPackage) {
         routeLogger.trace('Version is not public, or author does not have package');
 
-        if (!token || !token.hasPermission(TokenPermission.ViewAnalytics)) {
+        if (!token || !token.canViewAnalytics(packageId)) {
           routeLogger.trace('No token provided, or has insufficient permissions');
           return res.sendStatus(404);
         }

@@ -128,7 +128,7 @@ export function isValidPermissions(chain: ValidationChain): ValidationChain {
       min: 2,
       
       // If there is a bit set greater than the highest permission bit
-      max: 1 << 14 /* << Update this */ - 1
+      max: 1 << 15 /* << Update this */ - 1
     }).bail().withMessage('invalid_num')
     .custom(value => (value & TokenPermission.Admin) > 0).withMessage('is_admin');
 }

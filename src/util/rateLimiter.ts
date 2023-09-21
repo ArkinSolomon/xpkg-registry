@@ -109,6 +109,6 @@ function setHeaders(points: number, res: Response, rateLimiterRes: RateLimiterRe
   const suffix = isGlobal ? '-Global' : '';
   res.setHeader((suffix.length ? 'X-' : '') + 'Retry-After' + suffix, rateLimiterRes.msBeforeNext / 1000);
   res.setHeader('X-RateLimit-Limit' + suffix, points);
-  res.setHeader('X-RateLimit-Remaining' + suffix, rateLimiterRes.remainingPoints);
+  res.setHeader('X-RateLimit-Remaining' + suffix, rateLimiterRes.remainingPoints ?? 0);
   res.setHeader('X-RateLimit-Reset' + suffix, new Date(Date.now() + rateLimiterRes.msBeforeNext).toISOString());
 }

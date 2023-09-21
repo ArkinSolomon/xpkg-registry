@@ -34,7 +34,8 @@ export enum TokenPermission {
   ViewResources = 1 << 10,
   UpdateVersionDataAnyPackage = 1 << 11,
   UpdateVersionDataSpecificPackages = 1 << 12,
-  ViewAnalytics = 1 << 13
+  ViewAnalyticsAnyPackage = 1 << 13,
+  ViewAnalyticsSpecificPackages = 1 << 14
 }
 
 /**
@@ -47,6 +48,7 @@ export enum TokenPermission {
  * @property {string[]} versionUploadPackages Specific packages that this token has permission to upload versions for.
  * @property {string[]} descriptionUpdatePackages Specific packages that this token has permission to update the descriptions of.
  * @property {string[]} updateVersionDataPackages Specific packages that this token has permission to update the data of versions of.
+ * @property {string[]} viewAnalyticsPackages Specific packages that this token has permission to view the analytics data of.
  * @property {string} [tokenSession] The session of the token (changes for invalidation). Undefined for human authors.
  */
 export type AuthTokenPayload = {
@@ -56,6 +58,7 @@ export type AuthTokenPayload = {
   versionUploadPackages: string[];
   descriptionUpdatePackages: string[];
   updateVersionDataPackages: string[]; 
+  viewAnalyticsPackages: string[];
   tokenSession?: string;
 }
 
@@ -114,30 +117,39 @@ export default class AuthToken {
   }
 
   /**
-   * Get the packages that this author can upload to.
+   * Get the packages that this token can upload to.
    * 
-   * @returns {string[]|undefined} The packages that this author can upload new versions to.
+   * @returns {string[]|undefined} The packages that this token can upload new versions to.
    */
   get versionUploadPackages(): string[] | undefined {
     return this._payload.versionUploadPackages;
   }
 
   /**
-   * Get the packages that this author can update the descriptions of.
+   * Get the packages that this token can update the descriptions of.
    * 
-   * @returns {string[]|undefined} The packages that this author can update the description of.
+   * @returns {string[]|undefined} The packages that this token can update the description of.
    */
   get descriptionUpdatePackages(): string[] | undefined {
     return this._payload.descriptionUpdatePackages;
   }
 
   /**
-   * Get the packages that this author can update the version data of.
+   * Get the packages that this token can update the version data of.
    * 
-   * @returns {string[]|undefined} The packages that this author can update the version data of.
+   * @returns {string[]|undefined} The packages that this token can update the version data of.
    */
   get updateVersionDataPackages(): string[] | undefined {
     return this._payload.updateVersionDataPackages;
+  }
+
+  /**
+   * Get the packages that this token can view the analytics of.
+   * 
+   * @returns {string[]|undefined} The packages that this token can update the version data of.
+   */
+  get viewAnalyticsPackages(): string[] | undefined {
+    return this._payload.viewAnalyticsPackages;
   }
 
   /**
@@ -188,7 +200,7 @@ export default class AuthToken {
   /**
    * Determine if the token bearer has permission to upload a version to a specific package.
    * 
-   * @param {string} packageId The id of the package to check for permissions.
+   * @param {string} packageId The partial identifier of the package to check for permissions.
    * @returns {boolean} True if the bearer of this token is authorized to upload a version to the package.
    */
   public canUploadPackageVersion(packageId: string): boolean {
@@ -198,7 +210,7 @@ export default class AuthToken {
   /**
    * Determine if the token bearer has permission to update the description of a package.
    * 
-   * @param {string} packageId The id of the package to check for permissions.
+   * @param {string} packageId The partial identifier of the package to check for permissions.
    * @returns {boolean} True if the bearer of this token is authorized to update the description of the package.
    */
   public canUpdatePackageDescription(packageId: string): boolean {
@@ -208,17 +220,21 @@ export default class AuthToken {
   /**
    * Determine if the token bearer has permission to update the data of a package version.
    * 
-   * @param {string} packageId The full or partial identifier of the package to check for permissions. Must be a valid identifier.
+   * @param {string} packageId The partial identifier of the package to check for permissions.
    * @returns {boolean} True if the bearer of this token is authorized to update the data of any version for a specific package.
    */
   public canUpdateVersionData(packageId: string): boolean {
-    if (packageId.includes('/')) {
-      if (!packageId.startsWith('xpkg/'))
-        return false; 
-      packageId = packageId.replace('xpkg/', '');
-    }
-    
     return this.hasPermission(TokenPermission.UpdateVersionDataAnyPackage) || this.hasPermission(TokenPermission.UpdateVersionDataSpecificPackages) && (this._payload.updateVersionDataPackages || []).includes(packageId);
+  }
+
+  /**
+   * Determine if the token bearer has permission to update the data of a package version.
+   * 
+   * @param {string} packageId The partial identifier of the package to check.
+   * @returns {boolean} True if the bearer of this token is authorized to view the analytics for a specific package.
+   */
+  public canViewAnalytics(packageId: string): boolean {
+    return this.hasPermission(TokenPermission.ViewAnalyticsAnyPackage) || this.hasPermission(TokenPermission.ViewAnalyticsSpecificPackages) && (this._payload.viewAnalyticsPackages || []).includes(packageId);
   }
 
   /**

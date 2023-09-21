@@ -30,6 +30,7 @@
  * @property {[string, string][]} packages.versions.dependencies All of the dependencies of the package.
  * @property {[string, string][]} packages.versions.incompatibilities All of the incompatibilities of the package.
  * @property {string} packages.versions.xplaneSelection The X-Plane selection string of the version.
+ * @property {PlatformSupport} packages.versions.platforms The platforms that the version supports.
  */
 type FullRegistryData = {
   generated: string;
@@ -45,6 +46,7 @@ type FullRegistryData = {
       dependencies: [string, string][];
       incompatibilities: [string, string][];
       xplaneSelection: string;
+      platforms: PlatformSupport
     }[];
   }[];
 };
@@ -69,7 +71,7 @@ if (!process.env.NODE_ENV) {
 
 const alphaNumericNanoid = customAlphabet('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ1234567890');
 const SERVER_ID = process.env.SERVER_ID ?? `registry-${process.env.NODE_ENV}-${alphaNumericNanoid(32)}`;
-const serverIdHash = hasha(SERVER_ID, {encoding: 'hex', algorithm: 'sha1'});
+const serverIdHash = hasha(SERVER_ID, { encoding: 'hex', algorithm: 'sha1' });
 
 logger.info({
   NODE_ENV: process.env.NODE_ENV,
@@ -137,7 +139,7 @@ import analytics from './routes/analytics.js';
 
 import * as packageDatabase from './database/packageDatabase.js';
 import { PackageType } from './database/models/packageModel.js';
-import { VersionStatus } from './database/models/versionModel.js';
+import { PlatformSupport } from './database/models/versionModel.js';
 import rateLimiter, { globalRateLimiter } from './util/rateLimiter.js';
 import authorizeRoute from './auth/authorizeRoute.js';
 import hasha from 'hasha';
@@ -169,7 +171,7 @@ app.use('/account/data', rateLimiter('account-data', 8, 5));
 app.use('/account/changename', rateLimiter('account-changename', 3, 5));
 app.use('/account/packages/*', rateLimiter('account-packages', 5, 3));
 
-app.use('/analytics/', rateLimiter('analytics', 6, 4)); // TODO: DOC THIS
+app.use('/analytics/', rateLimiter('analytics', 6, 4));
 
 app.use('/auth/login', rateLimiter('auth-login', 5, 3));
 app.use('/auth/create', rateLimiter('auth-create', 5, 3));
@@ -214,9 +216,11 @@ async function updateData(): Promise<void> {
     packages: []
   };
 
+  const allPkgMap = new Map<string, FullRegistryData['packages'][0]>();
+  const pkgsWithVersionsMap = new Map<string, FullRegistryData['packages'][0]>();
   const allPackageData = await packageDatabase.getPackageData();
   for (const pkg of allPackageData) {
-    const pkgData: FullRegistryData['packages'][0] = {
+    allPkgMap.set(pkg.packageId, {
       packageId: pkg.packageId,
       packageName: pkg.packageName,
       authorId: pkg.authorId,
@@ -224,21 +228,27 @@ async function updateData(): Promise<void> {
       description: pkg.description,
       packageType: pkg.packageType,
       versions: []
-    };
-
-    // Get only the version strings of all of the versions of the package
-    pkgData.versions = (await packageDatabase.getVersionData(pkg.packageId))
-      .filter(v => v.isPublic && v.status === VersionStatus.Processed)
-      .map(v => ({
-        version: v.packageVersion,
-        dependencies: v.dependencies,
-        incompatibilities: v.incompatibilities,
-        xplaneSelection: v.xpSelection,
-      }));
-
-    if (pkgData.versions.length)
-      data.packages.push(pkgData);
+    });
   }
+  
+  const allVersions = await packageDatabase.allPublicProcessedVersions();
+  for (const version of allVersions) {
+    if (!allPkgMap.has(version.packageId))
+      continue;
+
+    const packageData = allPkgMap.get(version.packageId)!;
+    
+    packageData.versions.push({
+      version: version.packageVersion,
+      dependencies: version.dependencies,
+      incompatibilities: version.incompatibilities,
+      xplaneSelection: version.xpSelection,
+      platforms: version.platforms
+    });
+    pkgsWithVersionsMap.set(version.packageId, packageData);
+  }
+
+  data.packages = Array.from(pkgsWithVersionsMap.values());
 
   data.generated = new Date().toISOString();
   await fs.writeFile(storeFile, JSON.stringify(data), 'utf-8');

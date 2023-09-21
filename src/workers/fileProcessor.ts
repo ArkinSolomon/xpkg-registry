@@ -46,13 +46,18 @@ export type FileProcessorData = {
     isStored: boolean;
   };
   xpSelection: string;
+  platforms: {
+    macOS: boolean;
+    windows: boolean;
+    linux: boolean;
+  };
 };
 
 import fs from 'fs/promises';
 import * as objectStorage from 'oci-objectstorage';
 import { ConfigFileAuthenticationDetailsProvider } from 'oci-common';
 import { existsSync as exists, rmSync } from 'fs';
-import { unlinkSync, lstatSync, Stats, createReadStream} from 'fs';
+import { unlinkSync, lstatSync, Stats, createReadStream } from 'fs';
 import path from 'path';
 import Version from '../util/version.js';
 import loggerBase from '../logger.js';
@@ -92,7 +97,8 @@ const {
   packageId,
   packageType,
   dependencies,
-  accessConfig
+  accessConfig,
+  platforms
 } = data;
 const [tempId, storageId] = await Promise.all([nanoid(32), nanoid(64)]);
 
@@ -132,7 +138,7 @@ let hasUsedStorage = false;
 try {
   logger.trace('Calculating unzipped file size');
   const unzippedSize = await getUnzippedFileSize(zipFileLoc);
-  logger.info({ unzippedSize}, 'Calculated unzipped file size');
+  logger.info({ unzippedSize }, 'Calculated unzipped file size');
 
   if (unzippedSize > 17179869184) {
     logger.info('Unzipped zip file is greater than 16 gibibytes, can not continue');
@@ -206,7 +212,8 @@ try {
     packageId,
     packageVersion: packageVersion.toString(),
     authorId,
-    dependencies
+    dependencies,
+    platforms
   };
 
   logger.trace('Processing files');
@@ -253,7 +260,7 @@ try {
   });
 
   logger.trace('Done zipping xpkg file');
-  await fs.rm(originalUnzippedRoot, {recursive: true, force: true});
+  await fs.rm(originalUnzippedRoot, { recursive: true, force: true });
   logger.trace('Deleted unzipped files');
 
   logger.trace('Generating file hash');
@@ -348,7 +355,7 @@ try {
   logger.trace('Deleted local xpkg file and updated database, sending job done to jobs service');
 
   if (accessConfig.isStored)
-    await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `Your package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.': ''}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}`);
+    await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `Your package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.' : ''}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}`);
   else 
     await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `Your package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}\nLink: objectUrl`);
 

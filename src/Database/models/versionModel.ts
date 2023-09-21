@@ -34,6 +34,20 @@ export enum VersionStatus {
 }
 
 /**
+ * Represents the different operating systems (or platforms) that a version supports.
+ * 
+ * @typedef {Object} PlatformSupport
+ * @property {boolean} platforms.macOS True if MacOS is supported.
+ * @property {boolean} platforms.windows True if Windows is supported.
+ * @property {boolean} platforms.linux True if Linux is supported.
+ */
+export type PlatformSupport = {
+  macOS: boolean;
+  windows: boolean;
+  linux: boolean;
+};
+
+/**
  * The data for a specific version of a package.
  * 
  * @typedef {Object} VersionData
@@ -52,6 +66,9 @@ export enum VersionStatus {
  * @property {number} size The size of the xpkg file in bytes.
  * @property {number} installedSize The size of the xpkg file unzipped in bytes.
  * @property {string} xpSelection The X-Plane selection string.
+ * @property {boolean} supportsMacOS True if this version supports MacOS installations of X-Plane.
+ * @property {boolean} supportsWindows True if this version supports Windows installations of X-Plane.
+ * @property {boolean} supportsLinux True if this version supports Linux installations of X-Plane.
  */
 export type VersionData = {
   packageId: string;
@@ -69,9 +86,25 @@ export type VersionData = {
   size: number;
   installedSize: number;
   xpSelection: string;
+  platforms: PlatformSupport;
 };
 
 import mongoose, { Schema } from 'mongoose';
+
+const platformSchema = new Schema<PlatformSupport>({
+  macOS: {
+    type: Boolean,
+    required: true
+  },
+  windows: {
+    type: Boolean,
+    required: true
+  },
+  linux: {
+    type: Boolean,
+    required: true
+  }
+}, { _id: false });
 
 const versionSchema = new Schema<VersionData>({
   packageId: {
@@ -148,6 +181,10 @@ const versionSchema = new Schema<VersionData>({
   },
   xpSelection: {
     type: String,
+    required: true
+  },
+  platforms: {
+    type: platformSchema,
     required: true
   }
 }, {

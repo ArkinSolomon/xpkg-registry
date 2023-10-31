@@ -14,10 +14,8 @@
  */
 
 import { matchedData, param, query, validationResult } from 'express-validator';
-import logger from '../logger.js';
-import * as validators from '../util/validators.js';
+import { logger, validators, Version } from 'xpkg-common';
 import { Router } from 'express';
-import Version from '../util/version.js';
 import { dateToUTCHour } from '../util/dateUtil.js';
 import AuthToken from '../auth/authToken.js';
 import * as packageDatabase from '../database/packageDatabase.js';
@@ -57,13 +55,13 @@ route.get('/:packageId/:packageVersion',
         .send(message);
     }
 
-    const validatedFields = matchedData(req)as {
+    const validatedFields = matchedData(req) as {
       packageVersion: Version;
       packageId: string;
       after?: number;
       before?: number;
     };
-    const { packageId, packageVersion } = validatedFields ;
+    const { packageId, packageVersion } = validatedFields;
 
     let after = new Date(validatedFields.after ?? Date.now() - ONE_DAY_MS);
     let before = validatedFields.before ? new Date(validatedFields.before) : new Date(after.getTime() + ONE_DAY_MS);
@@ -124,7 +122,7 @@ route.get('/:packageId/:packageVersion',
     } catch (e) {
       if (e instanceof NoSuchPackageError) {
         routeLogger.trace(e, 'Attempted to get version data for non-existent package');
-        return res.sendStatus(404);        
+        return res.sendStatus(404);
       }
 
       routeLogger.error(e);

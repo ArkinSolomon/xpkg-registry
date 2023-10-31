@@ -10,7 +10,6 @@
     "start": "npm run build && node --trace-warnings --enable-source-maps -r dotenv/config .",
     "lint": "npx eslint src/** --fix"
   },
-  "author": "Arkin Solomon",
   "license": "Apache-2.0",
   "devDependencies": {
     "@types/archiver": "^5.3.1",
@@ -61,6 +60,7 @@
     "rate-limiter-flexible": "^3.0.0",
     "socket.io-client": "^4.6.2",
     "stat-mode": "^1.0.0",
-    "unzipper": "^0.10.11"
+    "unzipper": "^0.10.11",
+    "xpkg-common": "git+https://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:x-oauth-basic@github.com/ArkinSolomon/xpkg-common.git#deployment"
   }
 }

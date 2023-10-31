@@ -30,6 +30,7 @@ export type DownloadEntry = {
 }
 
 import mongoose, { Schema } from 'mongoose';
+import 'xpkg-common/atlasConnect';
 
 const downloadsSchema = new Schema<DownloadEntry>({
   packageId: {

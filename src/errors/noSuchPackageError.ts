@@ -13,7 +13,7 @@
  * either express or implied limitations under the License.
  */
 
-import Version from '../util/version.js';
+import { Version } from 'xpkg-common';
 
 /**
  * An error which is thrown by the account database when such a package does not exist.

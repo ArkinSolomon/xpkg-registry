@@ -15,14 +15,12 @@
 
 import { Router } from 'express';
 import * as packageDatabase from '../database/packageDatabase.js';
-import logger from '../logger.js';
+import { logger, Version, validators } from 'xpkg-common';
 import { PackageData } from '../database/models/packageModel.js';
 import { VersionData } from '../database/models/versionModel.js';
 import AuthToken, { TokenPermission } from '../auth/authToken.js';
-import * as validators from '../util/validators.js';
 import { body, matchedData, param, validationResult } from 'express-validator';
 import * as authorDatabase from '../database/authorDatabase.js';
-import Version from '../util/version.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 
 const route = Router();
@@ -117,7 +115,7 @@ route.patch('/changename',
           .status(400)
           .send('name_exists');
       }
-    
+
       await author.changeName(newName as string);
       routeLogger.trace('Author changed name successfully, notifying author');
       author.sendEmail('X-Pkg Name changed', `Your name on X-Pkg has been changed successfully. Your new name is now "${newName}". This name will appear to all users on X-Pkg.`);
@@ -148,7 +146,7 @@ route.get('/packages', async (req, res) => {
     id: req.id,
     ip: req.ip
   });
-    
+
   routeLogger.trace('Author requesting their package data');
 
   if (!token.hasPermission(TokenPermission.ViewPackages)) {
@@ -173,7 +171,7 @@ route.get('/packages', async (req, res) => {
           delete v.packageId;
           return v as VersionDataNoIdUploadDateAsStr;
         });
-      
+
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data.push(d);
     }
@@ -186,7 +184,7 @@ route.get('/packages', async (req, res) => {
   }
 });
 
-route.get('/packages/:packageId', 
+route.get('/packages/:packageId',
   validators.isPartialPackageId(param('packageId')),
   async (req, res) => {
     const token = req.user as AuthToken;
@@ -230,14 +228,14 @@ route.get('/packages/:packageId',
 
       delete data.authorId;
       delete data.authorName;
-  
+
       data.versions = (await packageDatabase.getVersionData(packageId))
         .map((v: VersionDataOptIdUploadDateAsObjOrStr) => {
           v.uploadDate = (v.uploadDate as Date).toISOString();
           delete v.packageId;
           return v as VersionDataNoIdUploadDateAsStr;
         });
-        
+
       routeLogger.info('Author retrieved package information for package');
       res.json(data);
     } catch (e) {
@@ -251,7 +249,7 @@ route.get('/packages/:packageId',
     }
   });
 
-route.get('/packages/:packageId/:packageVersion', 
+route.get('/packages/:packageId/:packageVersion',
   validators.isPartialPackageId(param('packageId')),
   validators.asVersion(param('packageVersion')),
   async (req, res) => {
@@ -293,11 +291,11 @@ route.get('/packages/:packageId/:packageVersion',
         logger.info('Author tried to retrieve data for a package version that they do not own');
         return res.sendStatus(404);
       }
-  
+
       const versionData = await packageDatabase.getVersionData(packageId, packageVersion) as VersionDataOptIdUploadDateAsObjOrStr;
       versionData.uploadDate = (versionData.uploadDate as Date).toISOString();
       delete versionData.packageId;
-        
+
       routeLogger.info('Author retrieved package information for package');
       res.json({
         ...packageData,
@@ -334,7 +332,7 @@ route.post('/reverify', async (req, res) => {
     return res.sendStatus(400);
   }
 
-  if (!token.hasPermission(TokenPermission.Admin)) {  
+  if (!token.hasPermission(TokenPermission.Admin)) {
     routeLogger.info('Insufficient permissions to resent verification email');
     return res.sendStatus(401);
   }
@@ -350,7 +348,7 @@ route.post('/reverify', async (req, res) => {
     await author.sendEmail('X-Pkg Verification', `Click on this link to verify your account: http://localhost:3000/verify/${verificationToken} (this link expires in 24 hours).`);
     routeLogger.trace('Author resent verification email');
     res.sendStatus(204);
-  } catch(e) {
+  } catch (e) {
     routeLogger.error(e);
     res.sendStatus(500);
   }

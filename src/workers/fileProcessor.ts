@@ -59,9 +59,8 @@ import { ConfigFileAuthenticationDetailsProvider } from 'oci-common';
 import { existsSync as exists, rmSync } from 'fs';
 import { unlinkSync, lstatSync, Stats, createReadStream } from 'fs';
 import path from 'path';
-import Version from '../util/version.js';
-import loggerBase from '../logger.js';
-import { nanoid } from 'nanoid/async';
+import { logger as loggerBase, Version } from 'xpkg-common';
+import { nanoid } from 'nanoid';
 import { isMainThread, parentPort, workerData } from 'worker_threads';
 import * as packageDatabase from '../database/packageDatabase.js';
 import * as authorDatabase from '../database/authorDatabase.js';
@@ -74,14 +73,14 @@ import { PackageType } from '../database/models/packageModel.js';
 
 if (isMainThread) {
   console.error('Worker files can not be run as part of the main thread');
-  process.exit(1); 
+  process.exit(1);
 }
 
 const { OCI_CONFIG_FILE, COMPARTMENT_ID, PUBLIC_BUCKET_NAME, PRIVATE_BUCKET_NAME, TEMPORARY_BUCKET_NAME } = process.env;
 if (!OCI_CONFIG_FILE || !COMPARTMENT_ID || !PUBLIC_BUCKET_NAME || !PRIVATE_BUCKET_NAME || !TEMPORARY_BUCKET_NAME) {
   console.error('Missing environment variable(s) for worker thread');
   parentPort?.emit('missing_env_vars');
-  process.exit(1); 
+  process.exit(1);
 }
 
 const provider = new ConfigFileAuthenticationDetailsProvider(OCI_CONFIG_FILE);
@@ -100,7 +99,8 @@ const {
   accessConfig,
   platforms
 } = data;
-const [tempId, storageId] = await Promise.all([nanoid(32), nanoid(64)]);
+const tempId = nanoid(32);
+const  storageId = nanoid(64);
 
 let unzippedFileLoc = path.join(unzippedFilesLocation, tempId);
 const xpkgFileLoc = path.join(xpkgFilesLocation, storageId + '.xpkg');
@@ -186,10 +186,10 @@ try {
       await cleanupUnzippedFail(VersionStatus.FailedMACOSX);
       process.exit(0);
     }
-    
+
     const subFolderName = files[0];
     unzippedFileLoc = path.join(unzippedFileLoc, subFolderName as string);
-    
+
     files = await fs.readdir(unzippedFileLoc);
   }
 
@@ -242,11 +242,11 @@ try {
     useDefaultScript('upgrade.ska', packageType, unzippedFileLoc, files)
   ]);
 
-  
+
   // We need to make the parent so that zipping doesn't fail
   const parent = path.resolve(xpkgFileLoc, '..');
   await fs.mkdir(parent, { recursive: true });
-  
+
   logger.trace('Done processing files, zipping xpkg file');
 
   await new Promise<void>((resolve, reject) => {
@@ -291,7 +291,7 @@ try {
   }
   hasUsedStorage = true;
   logger.trace('Consumed storage');
-  
+
   logger.trace('Fetching namespace from Oracle Cloud');
   const { value: namespace } = await client.getNamespace({});
 
@@ -338,9 +338,9 @@ try {
     const preAuthReqResp = await client.createPreauthenticatedRequest(request);
     objectUrl = preAuthReqResp.preauthenticatedRequest.fullPath;
   }
-  
+
   logger.trace('Uploaded package to OCI object storage');
-  
+
   await Promise.all([
     packageDatabase.resolveVersionData(
       packageId,
@@ -356,7 +356,7 @@ try {
 
   if (accessConfig.isStored)
     await author.sendEmail(`X-Pkg Package Uploaded (${packageId})`, `Your package ${packageId} has been successfully processed and uploaded to the X-Pkg registry.${accessConfig.isPrivate ? ' Since your package is private, to distribute it, you must give out your private key, which you can find in the X-Pkg developer portal.' : ''}\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}`);
-  else 
+  else
     await author.sendEmail(`X-Pkg Package Processed (${packageId})`, `Your package ${packageId} has been successfully processed. Since you have decided not to upload it to the X-Pkg registry, you need to download it now. Your package will be innaccessible after the link expires, the link expires in 24 hours. Anyone with the link may download the package.\n\nPackage id: ${packageId}\nPackage version: ${packageVersion.toString()}\nChecksum: ${hash}\nLink: objectUrl`);
 
   logger.trace('Author notified of process success, notifying jobs service');
@@ -365,7 +365,7 @@ try {
 } catch (e) {
   if (jobsService.aborted)
     logger.warn(e, 'Error occured during file processing after job abortion');
-  else 
+  else
     logger.error(e, 'Error occured during file processing');
 
   if (hasUsedStorage) {
@@ -390,11 +390,11 @@ try {
  * @param {string[]} files The files in the root directory of the package.
  */
 async function useDefaultScript(scriptName: string, packageType: PackageType, file: string, files: string[]): Promise<void> {
-  if (!files.includes(scriptName)){
+  if (!files.includes(scriptName)) {
     const resourceFile = path.resolve('resources', 'default_scripts', packageType, scriptName);
     if (!exists(resourceFile))
       return;
-    
+
     return fs.copyFile(resourceFile, path.join(file, scriptName));
   }
 }
@@ -482,7 +482,7 @@ function getVersionStatusReason(versionStatus: VersionStatus): string {
       return 'You can not have symbolic links in your packages.';
     else
       return 'You can not have symbolic links or executables in your packages.';
-  case VersionStatus.FailedManifestExists:  return 'You can not have a file named "manifest.json" in your zip folder root.';
+  case VersionStatus.FailedManifestExists: return 'You can not have a file named "manifest.json" in your zip folder root.';
   case VersionStatus.FailedNoFileDir: return 'No directory was found with the package id.';
   case VersionStatus.FailedServer: return 'The server failed to process the file, please try again later.';
   case VersionStatus.FailedFileTooLarge: return 'The zip file uploaded exceeded 16 gibibytes when unzipped.';

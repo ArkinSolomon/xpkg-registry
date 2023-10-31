@@ -28,7 +28,7 @@ import NoSuchAccountError from '../errors/noSuchAccountError.js';
  * @returns {Promise<void>} A promise which resolves when the author has been created successfully.
  */
 export async function createAuthor(authorId: string, authorName: string, authorEmail: string, passwordHash: string) {
-  const session = await nanoid();
+  const session = nanoid();
 
   const authorDoc = new AuthorModel({
     authorId,

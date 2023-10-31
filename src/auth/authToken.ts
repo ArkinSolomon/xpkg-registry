@@ -62,7 +62,7 @@ export type AuthTokenPayload = {
   tokenSession?: string;
 }
 
-import logger from '../logger.js';
+import { logger } from 'xpkg-common';
 import * as jwtPromise from '../util/jwtPromise.js';
 import { getAuthorDoc } from '../database/authorDatabase.js';
 

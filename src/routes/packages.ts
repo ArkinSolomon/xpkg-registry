@@ -18,24 +18,21 @@ import { Router } from 'express';
 import multer from 'multer';
 import os from 'os';
 import fs from 'fs';
-import * as validators from '../util/validators.js';
-import Version from '../util/version.js';
+import { logger, validators, Version, VersionSelection } from 'xpkg-common';
+import * as customValidators from '../util/customValidators.js';
 import * as packageDatabase from '../database/packageDatabase.js';
 import * as analyticsDatabase from '../database/analyticsDatabase.js';
 import { FileProcessorData } from '../workers/fileProcessor.js';
-import logger from '../logger.js';
 import { Worker } from 'worker_threads';
 import { rm } from 'fs/promises';
-import { customAlphabet } from 'nanoid/async';
+import { customAlphabet } from 'nanoid';
 import { isMainThread } from 'worker_threads';
-import SelectionChecker from '../util/versionSelection.js';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import { PackageType } from '../database/models/packageModel.js';
 import { VersionStatus } from '../database/models/versionModel.js';
 import AuthToken from '../auth/authToken.js';
 import InvalidListError from '../errors/invalidListError.js';
 import { body, matchedData, param, validationResult } from 'express-validator';
-import VersionSelection from '../util/versionSelection.js';
 
 const storeFile = path.resolve('./data.json');
 const route = Router();
@@ -66,8 +63,8 @@ route.get('/info/:packageId/:packageVersion',
   async (req, res) => {
     const result = validationResult(req);
     if (!result.isEmpty())
-      return res.sendStatus(400); 
-  
+      return res.sendStatus(400);
+
     const { packageId, packageVersion, privateKey } = matchedData(req) as {
       packageVersion: Version,
       packageId: string,
@@ -89,7 +86,7 @@ route.get('/info/:packageId/:packageVersion',
       }
       res.sendStatus(404);
     } catch (e) {
-      if (e instanceof NoSuchPackageError) 
+      if (e instanceof NoSuchPackageError)
         return res.sendStatus(404);
       logger.error(e);
     }
@@ -150,11 +147,11 @@ route.patch('/description',
     }
   });
 
-route.post('/new', 
+route.post('/new',
   validators.isPartialPackageId(body('packageId')),
   validators.isValidName(body('packageName')),
   validators.isValidDescription(body('description')),
-  validators.asPackageType(body('packageType')),
+  customValidators.asPackageType(body('packageType')),
   async (req, res) => {
     const token = req.user as AuthToken;
     const routeLogger = logger.child({
@@ -205,7 +202,7 @@ route.post('/new',
     } catch (e) {
       routeLogger.error(e);
       return res.sendStatus(500);
-    } 
+    }
   });
 
 route.post('/upload',
@@ -247,7 +244,7 @@ route.post('/upload',
       if (file) {
         routeLogger.trace('Forcefully deleting downloaded file on finish');
         await rm(file.path, { force: true });
-      } else 
+      } else
         routeLogger.trace('Will not forcefully delete downloaded file');
     };
     res.once('finish', fileDeleteCb);
@@ -293,7 +290,7 @@ route.post('/upload',
     supportsMacOS = typeof supportsMacOS !== 'boolean' ? supportsMacOS === 'true' : supportsMacOS;
     supportsWindows = typeof supportsWindows !== 'boolean' ? supportsWindows === 'true' : supportsWindows;
     supportsLinux = typeof supportsLinux !== 'boolean' ? supportsLinux === 'true' : supportsLinux;
-    
+
     if (!file) {
       routeLogger.trace('No file uploaded (no_file)');
       return res
@@ -339,7 +336,7 @@ route.post('/upload',
           .status(400)
           .send('version_exists');
       }
-      
+
       const platforms = {
         macOS: supportsMacOS,
         windows: supportsWindows,
@@ -349,7 +346,7 @@ route.post('/upload',
       await packageDatabase.addPackageVersion(packageId, packageVersion, {
         isPublic: isPublic,
         isStored: isStored,
-        privateKey: !isPublic && isStored ? await privateKeyNanoid(32) : void (0)
+        privateKey: !isPublic && isStored ? privateKeyNanoid(32) : void (0)
       }, dependencies, incompatibilities, xpSelection, platforms);
 
       routeLogger.trace('Registered package version in database');
@@ -449,7 +446,7 @@ route.post('/retry',
         routeLogger.trace('Author does not own package, or it doesn\'t exist (no_package)');
         return res.sendStatus(403);
       }
-  
+
       const versionData = await packageDatabase.getVersionData(packageId, packageVersion);
 
       if (versionData.status === VersionStatus.Processed || versionData.status === VersionStatus.Processing) {
@@ -517,7 +514,7 @@ route.patch('/incompatibilities',
       authorId: token.authorId,
       route: '/packages/incompatibilities'
     });
-    
+
     const result = validationResult(req);
     if (!result.isEmpty()) {
       const message = result.array()[0].msg;
@@ -622,7 +619,7 @@ route.patch('/xpselection',
         return res.sendStatus(401);
       }
 
-      await packageDatabase.updateVersionXPSelection(packageId, packageVersion, xpSelection); 
+      await packageDatabase.updateVersionXPSelection(packageId, packageVersion, xpSelection);
       routeLogger.info('X-Plane version selection updated successfully');
       res.sendStatus(204);
     } catch (e) {
@@ -645,7 +642,7 @@ route.patch('/xpselection',
  * @returns {[[string, string][], [string, string][]]} A tuple of two lists of tuples, where the first element is a list of tuples is the new (simplified) dependency list, and the second element is also a list of tuples, which is the new (simplified) incompatibility list.
  */
 function validateLists(packageId: string, dependencies: [string, string][], incompatibilities: [string, string][]): [[string, string][], [string, string][]] {
-  
+
   const dependencyMap: Map<string, string> = new Map();
   for (const dependency of dependencies) {
     if (!Array.isArray(dependency) || dependency.length !== 2)
@@ -653,19 +650,19 @@ function validateLists(packageId: string, dependencies: [string, string][], inco
 
     let dependencyId = dependency[0].trim().toLowerCase();
     const dependencySelection = dependency[1];
-  
+
     if (typeof dependencyId !== 'string' || typeof dependencySelection !== 'string')
       throw new InvalidListError('invalid_dep_tuple_types', 'Dependency tuple contains invalid types');
-  
+
     if (!validators.validateId(dependencyId))
       throw new InvalidListError('invalid_dep_tuple_id', 'Dependency tuple contains invalid identifier');
-      
+
     if (!dependencyId.includes('/'))
       dependencyId = 'xpkg/' + dependencyId;
-      
+
     if (dependencyId === packageId)
       throw new InvalidListError('self_dep', 'Declared dependency is self');
-  
+
     if (dependencyMap.has(dependencyId)) {
       const oldSelection = dependencyMap.get(dependencyId);
       dependencyMap.set(dependencyId, oldSelection + ',' + dependencySelection);
@@ -688,10 +685,10 @@ function validateLists(packageId: string, dependencies: [string, string][], inco
 
     if (!validators.validateId(incompatibilityId))
       throw new InvalidListError('invalid_inc_tuple_id', 'Incompatibility tuple contains invalid identifier');
-    
+
     if (!incompatibilityId.includes('/'))
       incompatibilityId = 'xpkg/' + incompatibilityId;
-    
+
     if (incompatibilityId === packageId || dependencyIdList.includes(incompatibilityId))
       throw new InvalidListError('dep_or_self_inc', 'Declared incompatibility is self or a dependency');
 
@@ -705,7 +702,7 @@ function validateLists(packageId: string, dependencies: [string, string][], inco
   // Make sure we simplify all selections before putting them back into the database
   const newDependencies = Array.from(dependencyMap.entries());
   newDependencies.forEach(d => {
-    const selection = new SelectionChecker(d[1]);
+    const selection = new VersionSelection(d[1]);
     if (!selection.isValid)
       throw new InvalidListError('invalid_dep_sel', 'Invalid dependency selection for ' + d[0]);
 
@@ -714,7 +711,7 @@ function validateLists(packageId: string, dependencies: [string, string][], inco
 
   const newIncompatibilities = Array.from(incompatibilityMap.entries());
   newIncompatibilities.forEach(i => {
-    const selection = new SelectionChecker(i[1]);
+    const selection = new VersionSelection(i[1]);
     if (!selection.isValid)
       throw new InvalidListError('invalid_inc_sel', 'Invalid incompatibility selection for ' + i[0]);
     i[1] = selection.toString();

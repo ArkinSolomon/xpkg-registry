@@ -23,211 +23,22 @@
 export type PasswordResetPayload = {
   id: string;
   session: string;
-}
+};
 
 import bcrypt from 'bcrypt';
 import { Router } from 'express';
-import * as validators from '../util/validators.js';
+import { logger, validators, verifyRecaptcha } from 'xpkg-common';
+import * as customValidators from '../util/customValidators.js';
 import * as authorDatabase from '../database/authorDatabase.js';
 import { getAuthorPackages } from '../database/packageDatabase.js';
 import { decode } from '../util/jwtPromise.js';
-import logger from '../logger.js';
-import { nanoid } from 'nanoid/async';
+import { nanoid } from 'nanoid';
 import { AccountValidationPayload } from '../database/models/authorModel.js';
-import verifyRecaptcha from '../util/recaptcha.js';
 import AuthToken, { TokenPermission } from '../auth/authToken.js';
 import { PackageData } from '../database/models/packageModel.js';
 import { body, check, matchedData, param, validationResult } from 'express-validator';
 
 const route = Router();
-
-route.post('/create',
-  validators.isValidEmail(body('email')),
-  validators.isValidName(body('name')),
-  validators.isValidPassword(body('password')),
-  body('validation').notEmpty(),
-  async (req, res) => {
-    const routeLogger = logger.child({
-      ip: req.ip,
-      route: '/auth/create',
-      requestId: req.id
-    });
-
-    const result = validationResult(req);
-    if (!result.isEmpty()) {
-      const message = result.array()[0].msg;
-      routeLogger.trace(`Validation failed with message: ${message}`);
-      return res
-        .status(400)
-        .send(message);
-    }
-
-    const { email, password, name, validation } = matchedData(req) as {
-      email: string;
-      password: string;
-      name: string;
-      validation: string;
-    };
-
-    try {
-      if (!(await verifyRecaptcha(validation, req.ip || 'unknown'))) {
-        routeLogger.trace('ReCAPTCHA validation failed');
-        return res.sendStatus(418);
-      } 
-
-      const [emailInUse, nameInUse] = await Promise.all([
-        authorDatabase.emailExists(email),
-        authorDatabase.nameExists(name)
-      ]);
-
-      if (emailInUse || nameInUse) {
-        routeLogger.info(`${emailInUse ? 'Email' : 'Name'} already in use`);
-        return res
-          .status(403)
-          .send(emailInUse ? 'email' : 'name');
-      }
-
-      const hash = await bcrypt.hash(password, 12);
-      const newAuthorId = await nanoid(8) + Math.floor(Date.now() / 1000);
-      const author =  await authorDatabase.createAuthor(
-        newAuthorId,
-        name,
-        email,
-        hash
-      );
-
-      routeLogger.setBindings({
-        authorId: newAuthorId
-      });
-      routeLogger.trace('New author account registered in database');
-
-      const [token, verificationToken] = await Promise.all([
-        author.createAuthToken(),
-        author.createVerifyToken()
-      ]);
-
-      routeLogger.trace('Generated auth and verification tokens');
-
-      author.sendEmail('Welcome to X-Pkg', `Welcome to X-Pkg!\n\nTo start uploading packages or resources to the portal, you need to verify your email first: http://localhost:3001/verify/${verificationToken} (this link expires in 24 hours).`);
-      res.json({ token });
-      routeLogger.info('New author account created');
-    } catch (e) {
-      routeLogger.error(e);
-      return res.sendStatus(500);
-    }
-  });
-
-route.post('/login',
-  validators.isValidEmail(body('email')),
-  validators.isValidPassword(body('password')),
-  body('validation').notEmpty(),
-  async (req, res) => {
-    const routeLogger = logger.child({
-      ip: req.ip,
-      route: '/auth/login',
-      requestId: req.id,
-    });
-
-    const result = validationResult(req);
-    if (!result.isEmpty()) {
-      const message = result.array()[0].msg;
-      logger.info(`Request failed with message: ${message}`);
-      return res
-        .status(400)
-        .send(message);
-    }
-
-    const { email, password, validation } = matchedData(req);
-
-    try {
-      if (!(await verifyRecaptcha(validation, req.ip || 'unknown'))) {
-        routeLogger.info('ReCAPTCHA validation failed');
-        return res.sendStatus(418);
-      }
-
-      const author = await authorDatabase.getAuthorFromEmail(email);
-      if (!author) {
-        routeLogger.info('No account with email');
-        return res.sendStatus(401);
-      }
-
-      routeLogger.setBindings({
-        authorName: author.authorName
-      });
-
-      const isValid = await bcrypt.compare(password, author.password);
-      if (!isValid) {
-        routeLogger.info('Wrong password');
-        return res.sendStatus(401);
-      }
-
-      routeLogger.trace('Login credentials valid');
-      const token = await author.createAuthToken();
-      routeLogger.info('Successful login, token generated');
-
-      res.json({ token });
-
-      await author.sendEmail('New Login', `There was a new login to your X-Pkg account from ${req.ip}`);
-    } catch (e) {
-      routeLogger.error(e);
-      res.sendStatus(500);
-    }
-  });
-
-route.post('/verify/:verificationToken',
-  param('verificationToken').trim().notEmpty(),
-  body('validation').trim().notEmpty(),
-  async (req, res) => {
-
-    const result = validationResult(req);
-    if (!result.isEmpty()) {
-      logger.info('Request body field validation failed');
-      return res.sendStatus(400);
-    }
-
-    const { verificationToken, validation } = matchedData(req);
-
-    const routeLogger = logger.child({
-      ip: req.ip,
-      route: '/auth/verify/:verificationToken',
-      id: req.id
-    });
-
-    const isTokenValid = await verifyRecaptcha(validation, req.ip as string);
-    if (!isTokenValid) {
-      routeLogger.info('Could not validate reCAPTCHA token');
-      return res.sendStatus(418);
-    }
-
-    let authorId;
-    try {
-      const payload = await decode(verificationToken, process.env.EMAIL_VERIFY_SECRET as string) as AccountValidationPayload;
-      authorId = payload.id;
-    } catch {
-      routeLogger.info(`Invalid token in verification request from ${req.ip}`);
-      return res.sendStatus(401);
-    }
-
-    routeLogger.setBindings({
-      authorId
-    });
-
-    try {
-      const isVerified = await authorDatabase.isVerified(authorId);
-      if (isVerified) { 
-        routeLogger.info('Author already verified, can not reverify');
-        return res.sendStatus(403);
-      }
-
-      routeLogger.trace('Will attempt to set the verification status of the author to true');
-      await authorDatabase.verify(authorId);
-      routeLogger.info('Verification status changed');
-      res.sendStatus(204);
-    } catch(e) {
-      routeLogger.error(e);
-      res.sendStatus(500);
-    }
-  });
 
 route.post('/issue',
   body('expires').isInt({
@@ -235,11 +46,11 @@ route.post('/issue',
     max: 365
   }),
   validators.isValidName(body('name')).isLength({
-    min: 3, 
+    min: 3,
     max: 32
   }),
   body('description').optional().isString().isAscii().default('').trim(),
-  validators.isValidPermissions(body('permissions')),
+  customValidators.isValidPermissions(body('permissions')),
 
   body('versionUploadPackages').default([]).isArray({
     max: 32
@@ -272,12 +83,12 @@ route.post('/issue',
     routeLogger.trace('Author wants to issue a token');
 
     const result = validationResult(req);
-    if (!result.isEmpty()) 
+    if (!result.isEmpty())
       return res
         .status(400)
         .send('bad_request');
 
-    if (!token.hasPermission(TokenPermission.Admin)) {  
+    if (!token.hasPermission(TokenPermission.Admin)) {
       routeLogger.info('Insufficient permissions to issue a new token');
       return res.sendStatus(401);
     }
@@ -344,7 +155,7 @@ route.post('/issue',
       return res
         .status(400)
         .send('invalid_perm');
-    }  else if ((permissions & TokenPermission.UpdateVersionDataAnyPackage) > 0 && hasSpecificUpdateVersionDataPermission) {
+    } else if ((permissions & TokenPermission.UpdateVersionDataAnyPackage) > 0 && hasSpecificUpdateVersionDataPermission) {
       routeLogger.info('Permissions UpdateVersionDataAnyPackage and UploadVersionDataSpecificPackages are both provided (invalid_perm)');
       return res
         .status(400)
@@ -354,7 +165,7 @@ route.post('/issue',
       return res
         .status(400)
         .send('invalid_perm');
-    }else if ((permissions & TokenPermission.ViewAnalyticsAnyPackage) > 0 && hasSpecificViewAnalyticsPermission) {
+    } else if ((permissions & TokenPermission.ViewAnalyticsAnyPackage) > 0 && hasSpecificViewAnalyticsPermission) {
       routeLogger.info('Permissions ViewAnalyticsAnyPackage and ViewAnalyticsSpecificPackages are both provided (invalid_perm)');
       return res
         .status(400)
@@ -390,7 +201,7 @@ route.post('/issue',
 
       if (
         !hasSpecificDescriptionUpdatePermission && descriptionUpdatePackages.length ||
-        !hasSpecificVersionUploadPermission && versionUploadPackages.length || 
+        !hasSpecificVersionUploadPermission && versionUploadPackages.length ||
         !hasSpecificUpdateVersionDataPermission && updateVersionDataPackages.length ||
         !hasSpecificViewAnalyticsPermission && viewAnalyticsPackages.length
       ) {
@@ -399,8 +210,8 @@ route.post('/issue',
           .status(400)
           .send('extra_arr');
       }
-  
-      const tokenSession = await nanoid();
+
+      const tokenSession = nanoid();
       const newToken = new AuthToken({
         tokenSession,
         session: author.session,
@@ -443,7 +254,7 @@ function processPackageIdList(packages: string[], authorPackages: PackageData[])
     packageId = packageId.trim().toLowerCase();
     if (!authorPackageSet.has(packageId))
       return null;
-    
+
     processedPackages.push(packageId);
     authorPackageSet.delete(packageId);
   }

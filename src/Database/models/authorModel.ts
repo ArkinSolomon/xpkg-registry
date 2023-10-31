@@ -114,8 +114,8 @@ export type AccountValidationPayload = {
 }
 
 import mongoose, { Schema } from 'mongoose';
-import '../atlasConnect.js';
-import email from '../../util/email.js';
+import 'xpkg-common/atlasConnect';
+import { sendEmail } from 'xpkg-common';
 import * as jwtPromise from '../../util/jwtPromise.js';
 import AuthToken, { TokenPermission } from '../../auth/authToken.js';
 import * as packageDatabase from '../packageDatabase.js';
@@ -211,7 +211,7 @@ const authorSchema = new Schema<DatabaseAuthor>({
   collection: 'authors',
   methods: {
     sendEmail: async function(subject: string, content: string): Promise<void> {
-      return email(this.authorEmail, subject, content);
+      return sendEmail(this.authorEmail, subject, content);
     },
     createAuthToken: async function(): Promise<string> {
       const token = new AuthToken({

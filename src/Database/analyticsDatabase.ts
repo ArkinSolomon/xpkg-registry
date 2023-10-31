@@ -25,7 +25,7 @@ type AnalyticsData = {
   downloads: number;
 };
 
-import Version from '../util/version.js';
+import { Version } from 'xpkg-common';
 import { dateToUTCHour } from '../util/dateUtil.js';
 import DownloadsModel from './models/downloadsModel.js';
 
@@ -76,7 +76,7 @@ export async function getVersionAnalyticsData(packageId: string, packageVersion:
     .select('-_id timestamp downloads')
     .lean()
     .exec();
-  
+
   return data as unknown as AnalyticsData;
 }
 

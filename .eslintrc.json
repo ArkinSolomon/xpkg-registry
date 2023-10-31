@@ -36,6 +36,7 @@
     ],
     "@typescript-eslint/no-non-null-assertion": "off",
     "space-infix-ops": ["warn"],
-    "object-curly-spacing": ["warn", "always"]
+    "object-curly-spacing": ["warn", "always"],
+    "@typescript-eslint/no-unused-vars": ["warn"]
   }
 }

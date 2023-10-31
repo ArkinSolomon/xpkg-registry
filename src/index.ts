@@ -60,7 +60,7 @@ import path from 'path';
 import bodyParser from 'body-parser';
 import cors from 'cors';
 import { pinoHttp } from 'pino-http';
-import logger from './logger.js';
+import { logger } from 'xpkg-common';
 import { unzippedFilesLocation, xpkgFilesLocation } from './routes/packages.js';
 import { customAlphabet } from 'nanoid';
 
@@ -230,14 +230,14 @@ async function updateData(): Promise<void> {
       versions: []
     });
   }
-  
+
   const allVersions = await packageDatabase.allPublicProcessedVersions();
   for (const version of allVersions) {
     if (!allPkgMap.has(version.packageId))
       continue;
 
     const packageData = allPkgMap.get(version.packageId)!;
-    
+
     packageData.versions.push({
       version: version.packageVersion,
       dependencies: version.dependencies,

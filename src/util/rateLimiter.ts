@@ -13,7 +13,7 @@
  * either express or implied limitations under the License.
  */
 import { Request, Response, NextFunction } from 'express';
-import '../database/atlasConnect.js';
+import '../database/atlasConnect';
 import mongoose from 'mongoose';
 import { RateLimiterMongo, RateLimiterRes } from 'rate-limiter-flexible';
 import AuthToken from '../auth/authToken.js';

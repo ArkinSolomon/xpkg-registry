@@ -49,7 +49,7 @@ export type PackageData = {
 };
 
 import mongoose, { Schema } from 'mongoose';
-import '../atlasConnect.js';
+import 'xpkg-common/atlasConnect';
 
 const packageSchema = new Schema<PackageData>({
   packageId: {

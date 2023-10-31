@@ -14,7 +14,7 @@
  */
 import { NextFunction, Request, Response } from 'express';
 import AuthToken from './authToken.js';
-import logger from '../logger.js';
+import { logger } from 'xpkg-common';
 
 /**
  * Create a new instance of an authorization middleware. Sets the {@code req.user} property to the author's token, or returns 401 if {@code optional} is set to false.
@@ -27,23 +27,23 @@ export default function (optional = false) {
     try {
       const token = req.headers.authorization;
       if (typeof token !== 'string')
-  
+
         // Just throw and let exception handling redirect/notify
         throw null;
-      
+
       const authToken = await AuthToken.verify(token);
       const author = await authToken.getAuthor();
-  
+
       if (author.session !== authToken.session)
         throw null;
-      
+
       else if (authToken.tokenSession) {
         if (!author.tokens.find(t => t.tokenSession === authToken.tokenSession))
           throw null;
       }
-  
+
       req.user = authToken;
-  
+
       next();
     } catch (e) {
       if (optional) {

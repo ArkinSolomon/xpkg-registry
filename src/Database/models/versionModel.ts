@@ -90,6 +90,7 @@ export type VersionData = {
 };
 
 import mongoose, { Schema } from 'mongoose';
+import 'xpkg-common/atlasConnect';
 
 const platformSchema = new Schema<PlatformSupport>({
   macOS: {

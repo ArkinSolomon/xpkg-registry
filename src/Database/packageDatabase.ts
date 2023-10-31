@@ -13,11 +13,10 @@
  * either express or implied limitations under the License.
  */
 
-import Version from '../util/version.js';
+import { Version, VersionSelection } from 'xpkg-common';
 import NoSuchPackageError from '../errors/noSuchPackageError.js';
 import PackageModel, { PackageData, PackageType } from './models/packageModel.js';
 import VersionModel, { PlatformSupport, VersionData, VersionStatus } from './models/versionModel.js';
-import VersionSelection from '../util/versionSelection.js';
 
 /**
  * Add a new package to the database. Does not check for existence.
